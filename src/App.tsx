@@ -66,6 +66,15 @@ type LogEntry = {
 }
 
 type Banner = { type: 'success' | 'error'; message: string } | null
+type ReportStats = {
+  ordersCount: number
+  itemsCount: number
+  sales: number
+  paid: number
+  loan: number
+  pending: number
+}
+type ReportRow = ReportStats & { label: string }
 
 const SESSION_KEY = 'rms_session'
 
@@ -197,7 +206,7 @@ function App() {
     return `${date.getUTCFullYear()}-W${weekNo}`
   }
 
-  const reportRows = useMemo(() => {
+  const reportRows = useMemo<ReportRow[]>(() => {
     const start = reportStart ? new Date(reportStart) : null
     const end = reportEnd ? new Date(reportEnd) : null
     if (end) end.setHours(23, 59, 59, 999)
@@ -209,7 +218,7 @@ function App() {
       return true
     })
 
-    const buckets = new Map<string, { ordersCount: number; itemsCount: number; sales: number; paid: number; loan: number }>()
+    const buckets = new Map<string, ReportStats>()
     filteredOrders.forEach((order) => {
       const date = new Date(order.time)
       let key = ''
@@ -326,7 +335,7 @@ function App() {
         (r) =>
           `<tr><td>${r.label}</td><td>${r.ordersCount}</td><td>${r.itemsCount}</td><td>$${r.sales.toFixed(
             2
-          )}</td><td>${r.paid}</td><td>${r.loan}</td></tr>`
+          )}</td><td>${r.paid}</td><td>${r.loan}</td><td>${r.pending}</td></tr>`
       )
       .join('')
     const total = reportRows.reduce(
@@ -336,8 +345,9 @@ function App() {
         sales: acc.sales + r.sales,
         paid: acc.paid + r.paid,
         loan: acc.loan + r.loan,
+        pending: acc.pending + r.pending,
       }),
-      { ordersCount: 0, itemsCount: 0, sales: 0, paid: 0, loan: 0 }
+      { ordersCount: 0, itemsCount: 0, sales: 0, paid: 0, loan: 0, pending: 0 }
     )
     const html = `
       <html>
