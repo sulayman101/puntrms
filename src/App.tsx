@@ -1,8 +1,31 @@
-import { useEffect, useMemo, useState } from 'react'
+import { useEffect, useMemo, useRef, useState } from 'react'
 import './App.css'
 import { app } from './firebase'
 import { getDatabase, onValue, push, ref, remove, set, update } from 'firebase/database'
 import loadingGif from './assets/laoding.gif'
+import { Doughnut } from 'react-chartjs-2'
+import {
+  Chart as ChartJS,
+  ArcElement,
+  Tooltip,
+  Legend,
+} from 'chart.js'
+import {
+  FiHome,
+  FiFileText,
+  FiUsers,
+  FiBox,
+  FiBarChart2,
+  FiMenu,
+  FiX,
+  FiDollarSign,
+  FiList,
+  FiUserCheck,
+  FiClipboard,
+  FiGrid,
+} from 'react-icons/fi'
+
+ChartJS.register(ArcElement, Tooltip, Legend)
 
 type Role = 'admin' | 'waiter'
 
@@ -30,10 +53,21 @@ type Order = {
   waiterId: string
   time: string
   items: OrderItem[]
-  status?: 'paid' | 'loan'
+  status?: 'paid' | 'loan' | 'pending'
+  collector?: string
+}
+
+type LogEntry = {
+  id: string
+  userId: string
+  time: string
+  type: string
+  detail?: string
 }
 
 type Banner = { type: 'success' | 'error'; message: string } | null
+
+const SESSION_KEY = 'rms_session'
 
 const normalizePhone = (phone: string) => {
   const digits = phone.replace(/\D/g, '')
@@ -89,11 +123,17 @@ function App() {
   const [itemActionItem, setItemActionItem] = useState<Item | null>(null)
   const [itemActionName, setItemActionName] = useState('')
   const [itemActionPrice, setItemActionPrice] = useState('0')
+  const [viewItem, setViewItem] = useState<Item | null>(null)
+  const [viewOrder, setViewOrder] = useState<Order | null>(null)
   const [pendingItemDelete, setPendingItemDelete] = useState<Item | null>(null)
+  const [orderFilter, setOrderFilter] = useState<'all' | 'active' | 'done'>('all')
   const [isLoading, setIsLoading] = useState(true)
   const [reportTab, setReportTab] = useState<'daily' | 'weekly' | 'monthly' | 'yearly'>('daily')
   const [reportStart, setReportStart] = useState('')
   const [reportEnd, setReportEnd] = useState('')
+  const [logs, setLogs] = useState<LogEntry[]>([])
+  const profileCardRef = useRef<HTMLDivElement | null>(null)
+  const avatarRef = useRef<HTMLButtonElement | null>(null)
 
   const itemsById = useMemo(() => Object.fromEntries(items.map((item) => [item.id, item])), [items])
   const usersById = useMemo(() => Object.fromEntries(users.map((user) => [user.id, user])), [users])
@@ -122,11 +162,17 @@ function App() {
     }, {})
     const topWaiterId =
       Object.entries(busiestWaiter).sort((a, b) => b[1] - a[1])[0]?.[0] ?? '—'
-    return { totalOrders, totalItems, lowStock, topWaiterId, totalSales }
-  }, [orders, items, currentUser, itemsById])
+    const waiterCount = users.filter((u) => u.role === 'waiter').length
+    return { totalOrders, totalItems, lowStock, topWaiterId, totalSales, waiterCount }
+  }, [orders, items, currentUser, itemsById, users])
 
   const orderTotal = (order: Order) =>
     order.items.reduce((sum, entry) => sum + entry.qty * (itemsById[entry.itemId]?.price ?? 0), 0)
+  const orderTitle = (order: Order) => {
+    const firstItem = order.items[0]
+    const name = firstItem ? itemsById[firstItem.itemId]?.name : ''
+    return name ? `${name} - ${order.id}` : order.id
+  }
   const draftTotal = Object.entries(draftQty).reduce(
     (sum, [itemId, qty]) => sum + qty * (itemsById[itemId]?.price ?? 0),
     0
@@ -139,6 +185,9 @@ function App() {
     const text = `${order.id} ${usersById[order.waiterId]?.name ?? ''}`.toLowerCase()
     return text.includes(search.trim().toLowerCase())
   })
+  const activeOrders = ordersFiltered.filter((o) => !o.status || o.status === 'pending')
+  const doneOrders = ordersFiltered.filter((o) => o.status === 'paid' || o.status === 'loan')
+  const orderList = orderFilter === 'all' ? ordersFiltered : orderFilter === 'active' ? activeOrders : doneOrders
   const getWeekId = (d: Date) => {
     const date = new Date(Date.UTC(d.getFullYear(), d.getMonth(), d.getDate()))
     const dayNum = date.getUTCDay() || 7
@@ -168,12 +217,13 @@ function App() {
       if (reportTab === 'weekly') key = getWeekId(date)
       if (reportTab === 'monthly') key = `${date.getFullYear()}-${String(date.getMonth() + 1).padStart(2, '0')}`
       if (reportTab === 'yearly') key = `${date.getFullYear()}`
-      const current = buckets.get(key) ?? { ordersCount: 0, itemsCount: 0, sales: 0, paid: 0, loan: 0 }
+      const current = buckets.get(key) ?? { ordersCount: 0, itemsCount: 0, sales: 0, paid: 0, loan: 0, pending: 0 }
       current.ordersCount += 1
       current.itemsCount += order.items.reduce((s, i) => s + i.qty, 0)
       current.sales += order.items.reduce((s, i) => s + i.qty * (itemsById[i.itemId]?.price ?? 0), 0)
       if (order.status === 'loan') current.loan += 1
-      else current.paid += 1
+      else if (order.status === 'paid') current.paid += 1
+      else current.pending += 1
       buckets.set(key, current)
     })
 
@@ -191,10 +241,61 @@ function App() {
   const itemsFiltered = items.filter((item) =>
     item.name.toLowerCase().includes(itemManageSearch.trim().toLowerCase())
   )
+  const waiterCharts = useMemo(() => {
+    const waiters = users.filter((u) => u.role === 'waiter')
+    return waiters.map((w) => {
+      const list = orders.filter((o) => o.waiterId === w.id)
+      return {
+        waiter: w,
+        orders: list.length,
+        loan: list.filter((o) => o.status === 'loan').length,
+        paid: list.filter((o) => o.status !== 'loan').length,
+      }
+    })
+  }, [users, orders])
+  const chartPalette = ['#0ea44d', '#3b82f6', '#f59e0b', '#ef4444', '#8b5cf6', '#14b8a6']
+  const waiterStatusStats = useMemo(() => {
+    const scoped =
+      currentUser && currentUser.role === 'waiter'
+        ? orders.filter((o) => o.waiterId === currentUser.id)
+        : orders
+    const paid = scoped.filter((o) => o.status === 'paid').length
+    const loan = scoped.filter((o) => o.status === 'loan').length
+    const pending = scoped.filter((o) => !o.status || o.status === 'pending').length
+    return { paid, loan, pending, total: scoped.length }
+  }, [orders, currentUser])
+
+  const addLog = (entry: Omit<LogEntry, 'id'>) => {
+    push(dbPath('log'), entry).catch(() => null)
+  }
+
+  const renderLogMessage = (log: LogEntry) => {
+    const actor = usersById[log.userId]?.name ?? log.userId
+    switch (log.type) {
+      case 'login':
+        return `${actor} login`
+      case 'waiter_add':
+        return `${actor} added waiter ${log.detail ?? ''}`.trim()
+      case 'waiter_update':
+        return `${actor} updated waiter ${log.detail ?? ''}`.trim()
+      case 'waiter_reset_pin':
+        return `${actor} reset waiter PIN ${log.detail ?? ''}`.trim()
+      case 'waiter_delete':
+        return `${actor} deleted waiter ${log.detail ?? ''}`.trim()
+      case 'item_add':
+        return `${actor} added item ${log.detail ?? ''}`.trim()
+      case 'item_update':
+        return `${actor} updated item ${log.detail ?? ''}`.trim()
+      case 'item_delete':
+        return `${actor} deleted item ${log.detail ?? ''}`.trim()
+      default:
+        return `${actor} ${log.type}`
+    }
+  }
 
   const exportReportCSV = () => {
-    const header = ['Period', 'Orders', 'Items', 'Sales', 'Paid', 'Loan']
-    const rows = reportRows.map((r) => [r.label, r.ordersCount, r.itemsCount, r.sales.toFixed(2), r.paid, r.loan])
+    const header = ['Period', 'Orders', 'Items', 'Sales', 'Paid', 'Loan', 'Pending']
+    const rows = reportRows.map((r) => [r.label, r.ordersCount, r.itemsCount, r.sales.toFixed(2), r.paid, r.loan, r.pending ?? 0])
     const total = reportRows.reduce(
       (acc, r) => ({
         ordersCount: acc.ordersCount + r.ordersCount,
@@ -202,10 +303,11 @@ function App() {
         sales: acc.sales + r.sales,
         paid: acc.paid + r.paid,
         loan: acc.loan + r.loan,
+        pending: acc.pending + (r.pending ?? 0),
       }),
-      { ordersCount: 0, itemsCount: 0, sales: 0, paid: 0, loan: 0 }
+      { ordersCount: 0, itemsCount: 0, sales: 0, paid: 0, loan: 0, pending: 0 }
     )
-    rows.push(['Total', total.ordersCount, total.itemsCount, total.sales.toFixed(2), total.paid, total.loan])
+    rows.push(['Total', total.ordersCount, total.itemsCount, total.sales.toFixed(2), total.paid, total.loan, total.pending])
     const csv = [header, ...rows].map((r) => r.join(',')).join('\n')
     const blob = new Blob([csv], { type: 'text/csv;charset=utf-8;' })
     const url = URL.createObjectURL(blob)
@@ -243,11 +345,11 @@ function App() {
       <body>
         <h2>Reports</h2>
         <table border="1" cellspacing="0" cellpadding="6">
-          <tr><th>Period</th><th>Orders</th><th>Items</th><th>Sales</th><th>Paid</th><th>Loan</th></tr>
+          <tr><th>Period</th><th>Orders</th><th>Items</th><th>Sales</th><th>Paid</th><th>Loan</th><th>Pending</th></tr>
           ${tableRows}
           <tr><td><strong>Total</strong></td><td>${total.ordersCount}</td><td>${total.itemsCount}</td><td>$${total.sales.toFixed(
             2
-          )}</td><td>${total.paid}</td><td>${total.loan}</td></tr>
+          )}</td><td>${total.paid}</td><td>${total.loan}</td><td>${total.pending}</td></tr>
         </table>
       </body>
       </html>
@@ -269,6 +371,9 @@ function App() {
     setPendingItemDelete(null)
     setItemActionItem(null)
     setOpenItemAction(null)
+    setViewItem(null)
+    setViewOrder(null)
+    setOpenAction(null)
   }
 
   useEffect(() => {
@@ -288,7 +393,7 @@ function App() {
       }
     })
 
-    const unsubItems = onValue(dbPath('items'), (snap) => {
+   const unsubItems = onValue(dbPath('items'), (snap) => {
     const val = snap.val() as Record<string, Item> | null
     const list: Item[] = val
       ? Object.entries(val).map(([id, item]) => ({
@@ -307,7 +412,8 @@ function App() {
             id: order.id ?? id,
             waiterId: order.waiterId ?? order.waiter_id,
             time: order.time,
-            status: order.status ?? 'paid',
+            status: order.status ?? 'pending',
+            collector: order.collector ?? '',
             items: Array.isArray(order.items)
               ? order.items
               : Object.entries(order.items ?? {}).map(([itemId, record]: any) => ({
@@ -320,12 +426,66 @@ function App() {
       setIsLoading(false)
     })
 
+    const unsubLogs = onValue(dbPath('log'), (snap) => {
+      const val = snap.val() as Record<string, any> | null
+      const list: LogEntry[] = val
+        ? Object.entries(val).map(([id, log]) => ({
+            id,
+            userId: log.userId,
+            time: log.time,
+            type: log.type,
+            detail: log.detail,
+          }))
+        : []
+      setLogs(list.sort((a, b) => new Date(b.time).getTime() - new Date(a.time).getTime()).slice(0, 10))
+    })
+
     return () => {
       unsubUsers()
       unsubItems()
       unsubOrders()
+      unsubLogs()
     }
   }, [db, currentUser])
+
+  useEffect(() => {
+    if (!banner) return
+    const timer = setTimeout(() => setBanner(null), 5000)
+    return () => clearTimeout(timer)
+  }, [banner])
+
+  useEffect(() => {
+    if (!profileOpen) return
+    const handler = (e: MouseEvent) => {
+      const target = e.target as Node
+      if (profileCardRef.current?.contains(target)) return
+      if (avatarRef.current?.contains(target)) return
+      setProfileOpen(false)
+    }
+    document.addEventListener('mousedown', handler)
+    return () => document.removeEventListener('mousedown', handler)
+  }, [profileOpen])
+
+  useEffect(() => {
+    if (currentUser) return
+    if (typeof window === 'undefined') return
+    const raw = localStorage.getItem(SESSION_KEY)
+    if (!raw || users.length === 0) return
+    try {
+      const parsed = JSON.parse(raw) as { userId: string; expiresAt: number }
+      if (Date.now() > parsed.expiresAt) {
+        localStorage.removeItem(SESSION_KEY)
+        return
+      }
+      const found = users.find((u) => u.id === parsed.userId)
+      if (found) {
+        setCurrentUser(found)
+        if (found.role === 'waiter') setDraftWaiter(found.id)
+      }
+    } catch {
+      localStorage.removeItem(SESSION_KEY)
+    }
+  }, [users, currentUser])
 
   const updateDraftQty = (itemId: string, qty: number) => {
     setDraftQty((prev) => {
@@ -364,7 +524,8 @@ function App() {
       id: orderId,
       waiter_id: draftWaiter,
       time: new Date().toISOString(),
-      status: 'paid',
+      status: 'pending',
+      collector: '',
       items: itemsMap,
     }
 
@@ -398,6 +559,12 @@ function App() {
         setNewWaiterPhone('')
         setWaiterModalOpen(false)
         setBanner({ type: 'success', message: 'Waiter added.' })
+        addLog({
+          userId: currentUser?.id ?? 'system',
+          time: new Date().toISOString(),
+          type: 'waiter_add',
+          detail: newUser.name,
+        })
       })
       .catch((err) => setBanner({ type: 'error', message: err.message }))
   }
@@ -420,6 +587,12 @@ function App() {
         setNewItemPrice('0')
         setItemModalOpen(false)
         setBanner({ type: 'success', message: 'Item added.' })
+        addLog({
+          userId: currentUser?.id ?? 'system',
+          time: new Date().toISOString(),
+          type: 'item_add',
+          detail: newItem.name,
+        })
       })
       .catch((err) => setBanner({ type: 'error', message: err.message }))
   }
@@ -441,19 +614,42 @@ function App() {
         setItemActionItem(null)
         setOpenItemAction(null)
         setBanner({ type: 'success', message: 'Item updated.' })
+        addLog({
+          userId: currentUser?.id ?? 'system',
+          time: new Date().toISOString(),
+          type: 'item_update',
+          detail: name,
+        })
       })
       .catch((err) => setBanner({ type: 'error', message: err.message }))
   }
 
   const deleteItem = (id: string) => {
+    const name = itemsById[id]?.name ?? id
     remove(dbPath(`items/${id}`))
-      .then(() => setBanner({ type: 'success', message: 'Item removed.' }))
+      .then(() => {
+        setBanner({ type: 'success', message: 'Item removed.' })
+        addLog({
+          userId: currentUser?.id ?? 'system',
+          time: new Date().toISOString(),
+          type: 'item_delete',
+          detail: name,
+        })
+      })
       .catch((err) => setBanner({ type: 'error', message: err.message }))
   }
 
   const resetWaiterPin = (id: string) => {
     update(dbPath(`users/${id}`), { pin: '0000' })
-      .then(() => setBanner({ type: 'success', message: 'PIN reset to 0000.' }))
+      .then(() => {
+        setBanner({ type: 'success', message: 'PIN reset to 0000.' })
+        addLog({
+          userId: currentUser?.id ?? 'system',
+          time: new Date().toISOString(),
+          type: 'waiter_reset_pin',
+          detail: id,
+        })
+      })
       .catch((err) => setBanner({ type: 'error', message: err.message }))
   }
 
@@ -465,7 +661,15 @@ function App() {
       return
     }
     update(dbPath(`users/${id}`), { name: nextName, phone: nextPhone })
-      .then(() => setBanner({ type: 'success', message: 'Waiter updated.' }))
+      .then(() => {
+        setBanner({ type: 'success', message: 'Waiter updated.' })
+        addLog({
+          userId: currentUser?.id ?? 'system',
+          time: new Date().toISOString(),
+          type: 'waiter_update',
+          detail: nextName,
+        })
+      })
       .catch((err) => setBanner({ type: 'error', message: err.message }))
   }
 
@@ -475,14 +679,28 @@ function App() {
       return
     }
     remove(dbPath(`users/${id}`))
-      .then(() => setBanner({ type: 'success', message: 'Waiter removed.' }))
+      .then(() => {
+        setBanner({ type: 'success', message: 'Waiter removed.' })
+        addLog({
+          userId: currentUser?.id ?? 'system',
+          time: new Date().toISOString(),
+          type: 'waiter_delete',
+          detail: id,
+        })
+      })
       .catch((err) => setBanner({ type: 'error', message: err.message }))
   }
 
-  const updateOrderStatus = (id: string, status: 'paid' | 'loan') => {
-    update(dbPath(`orders/${id}`), { status })
+  const updateOrderStatus = (id: string, status: 'paid' | 'loan' | 'pending') => {
+    const collector = status === 'paid' || status === 'loan' ? currentUser?.name ?? 'Unknown' : ''
+    update(dbPath(`orders/${id}`), { status, collector })
       .then(() => setBanner({ type: 'success', message: 'Order status updated.' }))
       .catch((err) => setBanner({ type: 'error', message: err.message }))
+  }
+
+  const statusLabel = (status?: string) => {
+    if (!status || status === 'pending') return { text: 'Active', tone: 'pending' }
+    return { text: 'Done', tone: 'done' }
   }
 
   const handleLogin = () => {
@@ -515,6 +733,13 @@ function App() {
     setTab('dash')
     setSidebarOpen(false)
     setProfileOpen(false)
+    addLog({ userId: match.id, time: new Date().toISOString(), type: 'login' })
+    if (typeof window !== 'undefined') {
+      localStorage.setItem(
+        SESSION_KEY,
+        JSON.stringify({ userId: match.id, expiresAt: Date.now() + 60 * 60 * 1000 })
+      )
+    }
     setBanner({ type: 'success', message: `Welcome, ${match.name}!` })
     if (match.role === 'waiter') {
       setDraftWaiter(match.id)
@@ -526,6 +751,9 @@ function App() {
     setBanner(null)
     setDraftWaiter('')
     setProfileOpen(false)
+    if (typeof window !== 'undefined') {
+      localStorage.removeItem(SESSION_KEY)
+    }
   }
 
   if (!currentUser) {
@@ -587,29 +815,42 @@ function App() {
         {isAdmin && (
           <aside className={`sidebar ${sidebarOpen ? 'open' : ''}`}>
             <div className="sidebar__brand">
-              <span role="img" aria-label="chef">
-                👨‍🍳
-              </span>
+              <FiGrid className="sidebar__brand-icon" aria-hidden />
               <span>RestoDash</span>
               <button className="icon-btn sidebar__close" onClick={() => setSidebarOpen(false)} aria-label="Close menu">
-                ✕
+                <FiX />
               </button>
             </div>
             <nav className="sidebar__nav">
-              <button className="sidebar__item" onClick={() => { setTab('dash'); setSidebarOpen(false) }}>
-                🏠 <span>Dashboard</span>
+              <button
+                className={`sidebar__item ${tab === 'dash' ? 'active' : ''}`}
+                onClick={() => { setTab('dash'); setSidebarOpen(false) }}
+              >
+                <FiHome /> <span>Dashboard</span>
               </button>
-              <button className="sidebar__item" onClick={() => { setTab('orders'); setSidebarOpen(false) }}>
-                🧾 <span>Orders</span>
+              <button
+                className={`sidebar__item ${tab === 'orders' ? 'active' : ''}`}
+                onClick={() => { setTab('orders'); setSidebarOpen(false) }}
+              >
+                <FiFileText /> <span>Orders</span>
               </button>
-              <button className="sidebar__item" onClick={() => { setTab('staff'); setSidebarOpen(false) }}>
-                🧑‍🍳 <span>Waiters</span>
+              <button
+                className={`sidebar__item ${tab === 'staff' ? 'active' : ''}`}
+                onClick={() => { setTab('staff'); setSidebarOpen(false) }}
+              >
+                <FiUsers /> <span>Waiters</span>
               </button>
-              <button className="sidebar__item" onClick={() => { setTab('items'); setSidebarOpen(false) }}>
-                🍱 <span>Order Items</span>
+              <button
+                className={`sidebar__item ${tab === 'items' ? 'active' : ''}`}
+                onClick={() => { setTab('items'); setSidebarOpen(false) }}
+              >
+                <FiBox /> <span>Order Items</span>
               </button>
-              <button className="sidebar__item" onClick={() => { setTab('reports'); setSidebarOpen(false) }}>
-                📈 <span>Reports</span>
+              <button
+                className={`sidebar__item ${tab === 'reports' ? 'active' : ''}`}
+                onClick={() => { setTab('reports'); setSidebarOpen(false) }}
+              >
+                <FiBarChart2 /> <span>Reports</span>
               </button>
             </nav>
           </aside>
@@ -617,26 +858,29 @@ function App() {
 
         <div className="main-column">
           <header className="topbar">
-            {isAdmin ? (
-              <div className="topbar__left">
+            <div className="topbar__left">
+              {isAdmin && (
                 <button className="icon-btn ghost-btn" onClick={() => setSidebarOpen((v) => !v)} aria-label="Menu">
-                  ☰
+                  {sidebarOpen ? <FiX /> : <FiMenu />}
                 </button>
-                <div className="brand">RestoDash</div>
-              </div>
-            ) : (
-              <div className="brand">RestoDash</div>
-            )}
+              )}
+              <div className={`brand ${isAdmin ? '' : 'brand--standalone'}`}>RestoDash</div>
+            </div>
             <div className="topbar__user">
               <div className="topbar__meta">
                 <strong>{currentUser.name}</strong>
                 <span>{currentUser.role === 'waiter' ? 'Waiter' : 'Admin'}</span>
               </div>
-              <button className="avatar" onClick={() => setProfileOpen((v) => !v)} aria-label="Profile menu">
+              <button
+                ref={avatarRef}
+                className="avatar"
+                onClick={() => setProfileOpen((v) => !v)}
+                aria-label="Profile menu"
+              >
                 {currentUser.name.charAt(0)}
               </button>
               {profileOpen && (
-                <div className="profile-card">
+                <div className="profile-card" ref={profileCardRef}>
                   <p className="profile-name">{currentUser.name}</p>
                   <p className="profile-meta">{currentUser.phone}</p>
                   <p className="profile-meta">{currentUser.role}</p>
@@ -653,23 +897,87 @@ function App() {
               <>
                 <div className="page-title-row">
                   <div>
-                    <p className="eyebrow">Overview</p>
-                    <h1 className="page-title">My Dashboard</h1>
+                    <h1 className="page-title">Dashboard</h1>
                   </div>
                 </div>
                 {banner && <div className={`banner banner--${banner.type}`}>{banner.message}</div>}
                 <div className="card-grid">
                   <div className="metric-card gradient">
-                    <p>My Sales</p>
+                    <p>Sales</p>
                     <strong>{formatPrice(metrics.totalSales)}</strong>
-                    <span className="metric-icon">$</span>
+                    <FiDollarSign className="metric-icon" aria-hidden />
                   </div>
                   <div className="metric-card gradient">
-                    <p>My Active Orders</p>
+                    <p>Active Orders</p>
                     <strong>{metrics.totalOrders}</strong>
-                    <span className="metric-icon">≡</span>
+                    <FiList className="metric-icon" aria-hidden />
                   </div>
+                  {isAdmin && (
+                    <div className="metric-card gradient">
+                      <p>Waiters</p>
+                      <strong>{metrics.waiterCount}</strong>
+                      <FiUserCheck className="metric-icon" aria-hidden />
+                    </div>
+                  )}
                 </div>
+                {(waiterCharts.length > 0 || logs.length > 0 || (!isAdmin && waiterStatusStats.total > 0)) && (
+                  <div className="chart-row">
+                    {isAdmin && waiterCharts.length > 0 && (
+                      <div className="panel light chart-panel">
+                        <Doughnut
+                          data={{
+                            labels: waiterCharts.map((w) => usersById[w.waiter.id]?.name ?? w.waiter.id),
+                            datasets: [
+                              {
+                                label: 'Orders',
+                                data: waiterCharts.map((w) => w.orders),
+                                backgroundColor: chartPalette,
+                              },
+                            ],
+                          }}
+                          options={{
+                            responsive: true,
+                            plugins: { legend: { position: 'bottom' } },
+                          }}
+                        />
+                      </div>
+                    )}
+                    {!isAdmin && waiterStatusStats.total > 0 && (
+                      <div className="panel light chart-panel">
+                        <Doughnut
+                          data={{
+                            labels: ['Paid', 'Loan', 'Pending'],
+                            datasets: [
+                              {
+                                data: [waiterStatusStats.paid, waiterStatusStats.loan, waiterStatusStats.pending],
+                                backgroundColor: ['#0ea44d', '#f59e0b', '#9ca3af'],
+                              },
+                            ],
+                          }}
+                          options={{
+                            responsive: true,
+                            plugins: { legend: { position: 'bottom' } },
+                          }}
+                        />
+                      </div>
+                    )}
+                    {logs.length > 0 && (
+                      <div className="panel light logs-panel">
+                        <div className="panel__head">
+                          <h3>Recent Logins</h3>
+                        </div>
+                        <ul className="logs">
+                          {logs.map((log) => (
+                            <li key={log.id}>
+                              <span className="logs__user">{renderLogMessage(log)}</span>
+                              <span className="logs__time">{formatDateTime(log.time)}</span>
+                            </li>
+                          ))}
+                        </ul>
+                      </div>
+                    )}
+                  </div>
+                )}
               </>
             )}
 
@@ -679,36 +987,59 @@ function App() {
                   <div>
                     <h1 className="page-title">Orders</h1>
                   </div>
-                </div>
-                <input
-                  className="search"
-                  type="search"
-                  placeholder="Search by Order ID (last 4 digits) or Waiter Name"
-                  value={search}
-                  onChange={(e) => setSearch(e.target.value)}
-                />
-                <div className="order-list-card">
-                  {ordersFiltered.length === 0 && <div className="empty light">No active orders found.</div>}
-                  {ordersFiltered.map((order) => (
-                    <div key={order.id} className="order-card light">
-                      <div className="order-card__row">
-                        <div>
-                          <p className="order-id">{order.id}</p>
-                          <p className="order-meta">Served by: {usersById[order.waiterId]?.name ?? order.waiterId}</p>
-                        </div>
-                        <div className="order-amount">
-                          {formatPrice(orderTotal(order))}
-                          <select
-                            className="status-select"
-                            value={order.status === 'loan' ? 'loan' : 'paid'}
-                            onChange={(e) => updateOrderStatus(order.id, e.target.value as 'paid' | 'loan')}
-                          >
-                            <option value="paid">Paid</option>
-                            <option value="loan">Loan</option>
-                          </select>
-                        </div>
-                      </div>
-                      <div className="order-card__meta">
+              </div>
+              <input
+                className="search"
+                type="search"
+                placeholder="Search by Order ID (last 4 digits) or Waiter Name"
+                value={search}
+                onChange={(e) => setSearch(e.target.value)}
+              />
+              <div className="chip-row">
+                {(['all', 'active', 'done'] as const).map((f) => (
+                  <button
+                    key={f}
+                    className={`chip ${orderFilter === f ? 'active' : ''}`}
+                    onClick={() => setOrderFilter(f)}
+                  >
+                    {f === 'all' ? 'All' : f === 'active' ? 'Active' : 'Done'}
+                  </button>
+                ))}
+              </div>
+              <div className="order-list-card">
+                {orderList.length === 0 && <div className="empty light">No orders found.</div>}
+                {orderList.map((order) => (
+                  <div
+                    key={order.id}
+                    className="order-card light"
+                    onClick={() => setViewOrder(order)}
+                    role="button"
+                  >
+                          <div className="order-card__row">
+                            <div>
+                              <p className="order-id">{orderTitle(order)}</p>
+                              <p className="order-meta">Served by: {usersById[order.waiterId]?.name ?? order.waiterId}</p>
+                            </div>
+                            <div className="order-amount">
+                              <div className="order-amount__top">
+                                <span className="order-price">{formatPrice(orderTotal(order))}</span>
+                                <select
+                                  className="status-select"
+                                  value={order.status ?? 'pending'}
+                                  onChange={(e) => updateOrderStatus(order.id, e.target.value as 'paid' | 'loan' | 'pending')}
+                                  onClick={(e) => e.stopPropagation()}
+                                >
+                                  <option value="pending">Pending</option>
+                                  <option value="paid">Paid</option>
+                                  <option value="loan">Loan</option>
+                                </select>
+                              </div>
+                              <span className={`status-chip ${statusLabel(order.status).tone}`}>
+                                {statusLabel(order.status).text}
+                              </span>
+                            </div>
+                          </div>
+                          <div className="order-card__meta">
                         <span className="icon">🧾</span>
                         <span className="order-time">{formatDateTime(order.time)}</span>
                       </div>
@@ -726,7 +1057,7 @@ function App() {
                   </div>
                 </div>
                 <div className="panel light staff-form">
-                  <div className="toolbar">
+                  <div className="toolbar toolbar--inline">
                     <input
                       className="search"
                       placeholder="Search waiter by name or phone"
@@ -761,53 +1092,14 @@ function App() {
                             className="action-dots"
                             onClick={() => {
                               setPendingDelete(null)
-                              setActionWaiter(null)
+                              setActionWaiter(waiter)
                               setActionType(null)
-                              setOpenAction((prev) => (prev === waiter.id ? null : waiter.id))
+                              setOpenAction(waiter.id)
                             }}
                             aria-haspopup="menu"
                           >
                             ⋮
                           </button>
-                          {openAction === waiter.id && (
-                            <div className="action-menu__dropdown">
-                              <button
-                                className="pill-btn"
-                                onClick={() => {
-                                  setPendingDelete(null)
-                                  setActionWaiter(waiter)
-                                  setActionType('profile')
-                                  setActionName(waiter.name)
-                                  setActionPhone(waiter.phone)
-                                  setOpenAction(null)
-                                }}
-                              >
-                                Update
-                              </button>
-                              <button
-                                className="pill-btn warn"
-                                onClick={() => {
-                                  setPendingDelete(null)
-                                  setActionWaiter(waiter)
-                                  setActionType('reset')
-                                  setOpenAction(null)
-                                }}
-                              >
-                                Reset PIN
-                              </button>
-                              <button
-                                className="pill-btn danger"
-                                onClick={() => {
-                                  setActionWaiter(null)
-                                  setActionType(null)
-                                  setOpenAction(null)
-                                  setPendingDelete(waiter)
-                                }}
-                              >
-                                Delete
-                              </button>
-                            </div>
-                          )}
                         </div>
                       </div>
                     ))}
@@ -824,7 +1116,7 @@ function App() {
                   </div>
                 </div>
                 <div className="panel light staff-form">
-                  <div className="toolbar">
+                  <div className="toolbar toolbar--inline">
                     <input
                       className="search"
                       placeholder="Search items"
@@ -858,7 +1150,7 @@ function App() {
                           <button
                             className="action-dots"
                             onClick={() => {
-                              setOpenItemAction((prev) => (prev === item.id ? null : item.id))
+                              setOpenItemAction(item.id)
                               setItemActionItem(item)
                               setItemActionName(item.name)
                               setItemActionPrice(String(item.price))
@@ -868,28 +1160,6 @@ function App() {
                           >
                             ⋮
                           </button>
-                          {openItemAction === item.id && (
-                            <div className="action-menu__dropdown">
-                              <button
-                                className="pill-btn"
-                                onClick={() => {
-                                  setItemActionItem(item)
-                                  setOpenItemAction(null)
-                                }}
-                              >
-                                Edit
-                              </button>
-                              <button
-                                className="pill-btn danger"
-                                onClick={() => {
-                                  setPendingItemDelete(item)
-                                  setOpenItemAction(null)
-                                }}
-                              >
-                                Delete
-                              </button>
-                            </div>
-                          )}
                         </div>
                       </div>
                     ))}
@@ -947,6 +1217,7 @@ function App() {
                       <span>Sales</span>
                       <span>Paid</span>
                       <span>Loan</span>
+                      <span>Pending</span>
                     </div>
                     {reportRows.map((row) => (
                       <div key={row.label} className="table__row">
@@ -956,6 +1227,7 @@ function App() {
                         <span>{formatPrice(row.sales)}</span>
                         <span>{row.paid}</span>
                         <span>{row.loan}</span>
+                        <span>{row.pending ?? 0}</span>
                       </div>
                     ))}
                     <div className="table__row total-row">
@@ -967,6 +1239,7 @@ function App() {
                       </span>
                       <span>{reportRows.reduce((s, r) => s + r.paid, 0)}</span>
                       <span>{reportRows.reduce((s, r) => s + r.loan, 0)}</span>
+                      <span>{reportRows.reduce((s, r) => s + (r.pending ?? 0), 0)}</span>
                     </div>
                   </div>
                 </div>
@@ -985,16 +1258,16 @@ function App() {
       {!isAdmin && (
         <nav className="tabbar">
           <button className={`tabbar__btn ${tab === 'dash' ? 'active' : ''}`} onClick={() => setTab('dash')}>
-            🏠
+            <FiHome />
             <span>Dash</span>
           </button>
           <button className={`tabbar__btn ${tab === 'orders' ? 'active' : ''}`} onClick={() => setTab('orders')}>
-            📋
+            <FiFileText />
             <span>Orders</span>
           </button>
           {currentUser.role === 'admin' && (
             <button className={`tabbar__btn ${tab === 'staff' ? 'active' : ''}`} onClick={() => setTab('staff')}>
-              📊
+              <FiUsers />
               <span>Staff</span>
             </button>
           )}
@@ -1049,7 +1322,7 @@ function App() {
               <strong>{formatPrice(draftTotal)}</strong>
             </div>
             <button className="primary block" onClick={handleCreateOrder}>
-              📋 Submit Order
+              <span className="btn-icon"><FiClipboard aria-hidden /></span> Submit Order
             </button>
           </div>
         </div>
@@ -1147,6 +1420,166 @@ function App() {
             <button className="primary block" onClick={addItem}>
               Add item
             </button>
+          </div>
+        </div>
+      )}
+
+      {viewItem && (
+        <div className="modal">
+          <div className="modal__content">
+            <div className="modal__head">
+              <h3>Item Details</h3>
+              <button className="icon-btn" onClick={() => setViewItem(null)} aria-label="Close">
+                ✕
+              </button>
+            </div>
+            <div className="modal__items">
+              <p className="order-meta"><strong>Name:</strong> {viewItem.name}</p>
+              <p className="order-meta"><strong>Price:</strong> {formatPrice(viewItem.price)}</p>
+            </div>
+            <div className="confirm-actions">
+              <button className="pill-btn" onClick={() => setViewItem(null)}>
+                Close
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {viewOrder && (
+        <div className="modal" onClick={() => setViewOrder(null)}>
+          <div className="modal__content" onClick={(e) => e.stopPropagation()}>
+            <div className="modal__head">
+              <h3>{orderTitle(viewOrder)}</h3>
+              <button className="icon-btn" onClick={() => setViewOrder(null)} aria-label="Close">
+                ✕
+              </button>
+            </div>
+            <p className="order-meta">
+              Served by: <strong>{usersById[viewOrder.waiterId]?.name ?? 'Unknown'}</strong>
+            </p>
+            <p className="order-meta">Time: {formatDateTime(viewOrder.time)}</p>
+            <div className="table">
+              <div className="table__head">
+                <span>Item</span>
+                <span>Qty</span>
+                <span>Price</span>
+                <span>Total</span>
+              </div>
+              {viewOrder.items.map((it) => {
+                const item = itemsById[it.itemId]
+                const lineTotal = (item?.price ?? 0) * it.qty
+                return (
+                  <div key={it.itemId} className="table__row">
+                    <span>{item?.name ?? it.itemId}</span>
+                    <span>{it.qty}</span>
+                    <span>{formatPrice(item?.price ?? 0)}</span>
+                    <span>{formatPrice(lineTotal)}</span>
+                  </div>
+                )
+              })}
+              <div className="table__row total-row">
+                <span>Total</span>
+                <span />
+                <span />
+                <span>{formatPrice(orderTotal(viewOrder))}</span>
+              </div>
+            </div>
+            <div className="confirm-actions">
+              <button className="pill-btn" onClick={() => setViewOrder(null)}>
+                Close
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {openAction && actionWaiter && (
+        <div className="modal" onClick={() => setOpenAction(null)}>
+          <div className="modal__content" onClick={(e) => e.stopPropagation()}>
+            <div className="modal__head">
+              <h3>Waiter Actions</h3>
+              <button className="icon-btn" onClick={() => setOpenAction(null)} aria-label="Close">
+                ✕
+              </button>
+            </div>
+            <p className="order-meta">{actionWaiter.name}</p>
+            <div className="modal__items">
+              <button
+                className="pill-btn"
+                onClick={() => {
+                  setActionWaiter(actionWaiter)
+                  setActionType('profile')
+                  setActionName(actionWaiter.name)
+                  setActionPhone(actionWaiter.phone)
+                  setOpenAction(null)
+                }}
+              >
+                Update
+              </button>
+              <button
+                className="pill-btn warn"
+                onClick={() => {
+                  setActionWaiter(actionWaiter)
+                  setActionType('reset')
+                  setOpenAction(null)
+                }}
+              >
+                Reset PIN
+              </button>
+              <button
+                className="pill-btn danger"
+                onClick={() => {
+                  setPendingDelete(actionWaiter)
+                  setOpenAction(null)
+                }}
+              >
+                Delete
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {openItemAction && itemActionItem && (
+        <div className="modal" onClick={() => setOpenItemAction(null)}>
+          <div className="modal__content" onClick={(e) => e.stopPropagation()}>
+            <div className="modal__head">
+              <h3>Item Actions</h3>
+              <button className="icon-btn" onClick={() => setOpenItemAction(null)} aria-label="Close">
+                ✕
+              </button>
+            </div>
+            <p className="order-meta">{itemActionItem.name}</p>
+            <div className="modal__items">
+              <button
+                className="pill-btn"
+                onClick={() => {
+                  setViewItem(itemActionItem)
+                  setOpenItemAction(null)
+                }}
+              >
+                View
+              </button>
+              <button
+                className="pill-btn"
+                onClick={() => {
+                  setItemActionItem(itemActionItem)
+                  setOpenItemAction(null)
+                }}
+              >
+                Edit
+              </button>
+              <button
+                className="pill-btn danger"
+                onClick={() => {
+                  setPendingItemDelete(itemActionItem)
+                  setOpenItemAction(null)
+                }}
+              >
+                Delete
+              </button>
+            </div>
           </div>
         </div>
       )}
