@@ -27,10 +27,11 @@ import {
 
 ChartJS.register(ArcElement, Tooltip, Legend)
 
-type Role = 'admin' | 'waiter'
+type Role = 'admin' | 'waiter' | 'collector'
 
 type User = {
   id: string
+  dbId?: string
   name: string
   role: Role
   phone: string
@@ -41,6 +42,7 @@ type Item = {
   id: string
   name: string
   price: number
+  stock?: number
 }
 
 type OrderItem = {
@@ -75,8 +77,149 @@ type ReportStats = {
   pending: number
 }
 type ReportRow = ReportStats & { label: string }
+type LoanEntry = { id: string; orderId: string; amount: number; date: string; servedBy: string }
+type LoanCustomer = { id: string; dbId?: string; name: string; phone: string; loans?: Record<string, LoanEntry> }
 
 const SESSION_KEY = 'rms_session'
+const ROLE_LABEL: Record<Role, string> = { admin: 'Admin', waiter: 'Waiter', collector: 'Collector' }
+const TRANSLATIONS: Record<'en' | 'so', Record<string, string>> = {
+  en: {
+    dash: 'Dash',
+    orders: 'Orders',
+    staff: 'Staff',
+    items: 'Items',
+    reports: 'Reports',
+    loans: 'Loans',
+    loanBook: 'Loan Book',
+    searchOrders: 'Search by Order ID (last 4 digits) or User Name',
+    searchItems: 'Search items',
+    searchUsers: 'Search users by name or phone',
+    searchLoanCustomers: 'Search loan customers',
+    searchMenu: 'Search menu items...',
+    addUser: '+ Add user',
+    addItem: '+ Add item',
+    addLoanCustomer: '+ Add loan customer',
+    addLoanEntry: '+ Add loan entry',
+    submitOrder: 'Submit Order',
+    total: 'Total',
+    name: 'Name',
+    phone: 'Phone',
+    price: 'Price',
+    stock: 'Stock',
+    statusActive: 'Active',
+    statusDone: 'Done',
+    statusPending: 'Pending',
+    statusPaid: 'Paid',
+    statusLoan: 'Loan',
+    all: 'All',
+    active: 'Active',
+    paid: 'Paid',
+    loan: 'Loan',
+    done: 'Done',
+    loginTitle: 'RestoDash Login',
+    loginHint: 'Access your management panel.',
+    phoneNumber: 'Phone Number',
+    pinDigits: 'PIN (4 digits)',
+    signIn: 'Sign In',
+    dashboardTitle: 'Dashboard',
+    ordersTitle: 'Orders',
+    itemsTitle: 'Items',
+    staffTitle: 'Users',
+    reportsTitle: 'Reports',
+    loansTitle: 'Loan Book',
+    loanOrders: 'Loan Orders',
+    loanAmount: 'Loan Amount',
+    stockLeft: 'Stock left',
+    updateStock: 'Update Stock',
+    actions: 'Actions',
+    noItems: 'No items found.',
+    noUsers: 'No users found.',
+    noOrders: 'No orders found.',
+    noLoanCustomers: 'No loan customers found.',
+    noLoansYet: 'No loans yet.',
+    servedBy: 'Served by',
+    loanDetails: 'Loan details',
+    selectLoanCustomer: 'Select loan customer',
+    selectOrder: 'Select order',
+    cancel: 'Cancel',
+    delete: 'Delete',
+    edit: 'Edit',
+    view: 'View',
+    addEntry: 'Add entry',
+    addItemTitle: 'Add Item',
+    addUserTitle: 'Add User',
+    newOrderTitle: 'New Order',
+  },
+  so: {
+    dash: 'Degdeg',
+    orders: 'Dalabyo',
+    staff: 'Isticmaaleyaal',
+    items: 'Alaabo',
+    reports: 'Warbixinno',
+    loans: 'Dayn',
+    loanBook: 'Buugga Deynta',
+    searchOrders: 'Raadi dalab (4 lambar dambe) ama magac',
+    searchItems: 'Raadi alaabo',
+    searchUsers: 'Raadi isticmaaleyaal magac ama telefoon',
+    searchLoanCustomers: 'Raadi macaamiisha daynta',
+    searchMenu: 'Raadi alaabta menu...',
+    addUser: '+ Ku dar isticmaal',
+    addItem: '+ Ku dar alaab',
+    addLoanCustomer: '+ Ku dar macmiil deyn',
+    addLoanEntry: '+ Ku dar deyn',
+    submitOrder: 'Gudbi Dalabka',
+    total: 'Wadar',
+    name: 'Magac',
+    phone: 'Telefoon',
+    price: 'Qiime',
+    stock: 'Kayd',
+    statusActive: 'Firfircoon',
+    statusDone: 'Dhamey',
+    statusPending: 'Sugaya',
+    statusPaid: 'bixiyay',
+    statusLoan: 'Deyn',
+    all: 'Dhammaan',
+    active: 'ku taagan',
+    paid: 'bixiyay',
+    loan: 'Deyn',
+    done: 'dhammaaday',
+    loginTitle: 'RestoDash Gelid',
+    loginHint: 'Gali nidaamka maamulka.',
+    phoneNumber: 'Lambarka Telefoonka',
+    pinDigits: 'PIN (4 lambar)',
+    signIn: 'Gali',
+    dashboardTitle: 'Tusmo Araga',
+    ordersTitle: 'Dalabyo',
+    itemsTitle: 'Alaabo',
+    staffTitle: 'Shaaqalaha',
+    reportsTitle: 'Warbixinno',
+    loansTitle: 'Buugga Deynta',
+    loanOrders: 'Dalabyo Deyn',
+    loanAmount: 'Wadar Deyn',
+    stockLeft: 'int ka hadhay',
+    updateStock: 'Cusbooneysii kayd',
+    actions: 'sixid',
+    noItems: 'Alaab lama helin.',
+    noUsers: 'Isticmaal lama helin.',
+    noOrders: 'Dalab lama helin.',
+    noLoanCustomers: 'Ma jiraan macaamiil deyn.',
+    noLoansYet: 'Weli dayn ma jiro.',
+    servedBy: 'U adeegey',
+    loanDetails: 'Faahfaahinta deynta',
+    selectLoanCustomer: 'Dooro macmiil deyn',
+    selectOrder: 'Dooro dalab',
+    cancel: 'Jooji',
+    delete: 'Tirtir',
+    edit: 'Wax ka beddel',
+    view: 'Fiiri',
+    addEntry: 'Ku dar deyn',
+    addItemTitle: 'Ku dar Alaab',
+    addUserTitle: 'Ku dar Isticmaal',
+    newOrderTitle: 'Dalab Cusub',
+  },
+}
+
+const tr = (lang: 'en' | 'so', key: string) => TRANSLATIONS[lang]?.[key] ?? key
 
 const normalizePhone = (phone: string) => {
   const digits = phone.replace(/\D/g, '')
@@ -103,46 +246,69 @@ function App() {
   const [orders, setOrders] = useState<Order[]>([])
   const [search, setSearch] = useState('')
   const [itemSearch, setItemSearch] = useState('')
-  const [draftWaiter, setDraftWaiter] = useState<string>('')
-  const [draftQty, setDraftQty] = useState<Record<string, number>>({})
-  const [banner, setBanner] = useState<Banner>(null)
-  const [currentUser, setCurrentUser] = useState<User | null>(null)
-  const [authPhone, setAuthPhone] = useState<string>('')
-  const [authPin, setAuthPin] = useState<string>('')
-  const [authError, setAuthError] = useState<string>('')
-  const [tab, setTab] = useState<'dash' | 'orders' | 'staff' | 'items' | 'reports'>('dash')
-  const [showOrderModal, setShowOrderModal] = useState(false)
-  const [sidebarOpen, setSidebarOpen] = useState(false)
-  const [profileOpen, setProfileOpen] = useState(false)
-  const [waiterSearch, setWaiterSearch] = useState('')
-  const [newWaiterName, setNewWaiterName] = useState('')
-  const [newWaiterPhone, setNewWaiterPhone] = useState('')
-  const [waiterModalOpen, setWaiterModalOpen] = useState(false)
-  const [pendingDelete, setPendingDelete] = useState<User | null>(null)
-  const [openAction, setOpenAction] = useState<string | null>(null)
-  const [actionWaiter, setActionWaiter] = useState<User | null>(null)
-  const [actionType, setActionType] = useState<'reset' | 'profile' | null>(null)
-  const [actionName, setActionName] = useState('')
-  const [actionPhone, setActionPhone] = useState('')
+const [draftWaiter, setDraftWaiter] = useState<string>('')
+const [draftQty, setDraftQty] = useState<Record<string, number>>({})
+const [banner, setBanner] = useState<Banner>(null)
+const [currentUser, setCurrentUser] = useState<User | null>(null)
+const [authPhone, setAuthPhone] = useState<string>('')
+const [authPin, setAuthPin] = useState<string>('')
+const [authError, setAuthError] = useState<string>('')
+const [tab, setTab] = useState<'dash' | 'orders' | 'staff' | 'items' | 'reports' | 'loans'>('dash')
+const [language, setLanguage] = useState<'en' | 'so'>('en')
+const [showOrderModal, setShowOrderModal] = useState(false)
+const [sidebarOpen, setSidebarOpen] = useState(false)
+const [profileOpen, setProfileOpen] = useState(false)
+const [waiterSearch, setWaiterSearch] = useState('')
+const [newWaiterName, setNewWaiterName] = useState('')
+const [newWaiterPhone, setNewWaiterPhone] = useState('+25290')
+const [newWaiterRole, setNewWaiterRole] = useState<Role>('waiter')
+const [waiterModalOpen, setWaiterModalOpen] = useState(false)
+const [pendingDelete, setPendingDelete] = useState<User | null>(null)
+const [openAction, setOpenAction] = useState<string | null>(null)
+const [actionWaiter, setActionWaiter] = useState<User | null>(null)
+const [actionType, setActionType] = useState<'reset' | 'profile' | null>(null)
+const [actionName, setActionName] = useState('')
+const [actionPhone, setActionPhone] = useState('')
+const [actionRole, setActionRole] = useState<Role>('waiter')
+const [actionPin, setActionPin] = useState('')
   const [itemManageSearch, setItemManageSearch] = useState('')
-  const [itemModalOpen, setItemModalOpen] = useState(false)
-  const [newItemName, setNewItemName] = useState('')
-  const [newItemPrice, setNewItemPrice] = useState('0')
-  const [openItemAction, setOpenItemAction] = useState<string | null>(null)
-  const [itemActionItem, setItemActionItem] = useState<Item | null>(null)
-  const [itemActionName, setItemActionName] = useState('')
-  const [itemActionPrice, setItemActionPrice] = useState('0')
+const [itemModalOpen, setItemModalOpen] = useState(false)
+const [newItemName, setNewItemName] = useState('')
+const [newItemPrice, setNewItemPrice] = useState('0')
+const [newItemStock, setNewItemStock] = useState('0')
+const [openItemAction, setOpenItemAction] = useState<string | null>(null)
+const [itemActionItem, setItemActionItem] = useState<Item | null>(null)
+const [itemActionName, setItemActionName] = useState('')
+const [itemActionPrice, setItemActionPrice] = useState('0')
+const [itemActionStock, setItemActionStock] = useState('0')
+const [stockModalItem, setStockModalItem] = useState<Item | null>(null)
+const [stockModalValue, setStockModalValue] = useState('0')
   const [viewItem, setViewItem] = useState<Item | null>(null)
   const [viewOrder, setViewOrder] = useState<Order | null>(null)
-  const [pendingItemDelete, setPendingItemDelete] = useState<Item | null>(null)
-  const [orderFilter, setOrderFilter] = useState<'all' | 'active' | 'done'>('all')
+const [pendingItemDelete, setPendingItemDelete] = useState<Item | null>(null)
+const [orderFilter, setOrderFilter] = useState<'all' | 'active' | 'done' | 'paid' | 'loan'>('all')
+const [orderWaiterFilter, setOrderWaiterFilter] = useState<'all' | string>('all')
   const [isLoading, setIsLoading] = useState(true)
-  const [reportTab, setReportTab] = useState<'daily' | 'weekly' | 'monthly' | 'yearly'>('daily')
-  const [reportStart, setReportStart] = useState('')
-  const [reportEnd, setReportEnd] = useState('')
-  const [logs, setLogs] = useState<LogEntry[]>([])
-  const profileCardRef = useRef<HTMLDivElement | null>(null)
-  const avatarRef = useRef<HTMLButtonElement | null>(null)
+const [reportTab, setReportTab] = useState<'daily' | 'weekly' | 'monthly' | 'yearly'>('daily')
+const [reportStart, setReportStart] = useState('')
+const [reportEnd, setReportEnd] = useState('')
+const [reportStatus, setReportStatus] = useState<'all' | 'paid' | 'loan'>('all')
+const [logs, setLogs] = useState<LogEntry[]>([])
+const profileCardRef = useRef<HTMLDivElement | null>(null)
+const avatarRef = useRef<HTMLButtonElement | null>(null)
+const [loanCustomers, setLoanCustomers] = useState<LoanCustomer[]>([])
+const [loanCustomerSearch, setLoanCustomerSearch] = useState('')
+const [loanCustomerModalOpen, setLoanCustomerModalOpen] = useState(false)
+const [newLoanCustomerName, setNewLoanCustomerName] = useState('')
+const [newLoanCustomerPhone, setNewLoanCustomerPhone] = useState('+25290')
+const [loanEntryModalOpen, setLoanEntryModalOpen] = useState(false)
+const [loanEntryCustomerId, setLoanEntryCustomerId] = useState('')
+const [loanEntryOrderId, setLoanEntryOrderId] = useState('')
+const [viewLoanCustomer, setViewLoanCustomer] = useState<LoanCustomer | null>(null)
+const [loanStatusModalOpen, setLoanStatusModalOpen] = useState(false)
+const [loanStatusOrderId, setLoanStatusOrderId] = useState('')
+const [loanStatusCustomerId, setLoanStatusCustomerId] = useState('')
+const [loanStatusSearch, setLoanStatusSearch] = useState('')
 
   const itemsById = useMemo(() => Object.fromEntries(items.map((item) => [item.id, item])), [items])
   const usersById = useMemo(() => Object.fromEntries(users.map((user) => [user.id, user])), [users])
@@ -171,8 +337,8 @@ function App() {
     }, {})
     const topWaiterId =
       Object.entries(busiestWaiter).sort((a, b) => b[1] - a[1])[0]?.[0] ?? '—'
-    const waiterCount = users.filter((u) => u.role === 'waiter').length
-    return { totalOrders, totalItems, lowStock, topWaiterId, totalSales, waiterCount }
+    const staffCount = users.filter((u) => u.role !== 'admin').length
+    return { totalOrders, totalItems, lowStock, topWaiterId, totalSales, staffCount }
   }, [orders, items, currentUser, itemsById, users])
 
   const orderTotal = (order: Order) =>
@@ -182,21 +348,58 @@ function App() {
     const name = firstItem ? itemsById[firstItem.itemId]?.name : ''
     return name ? `${name} - ${order.id}` : order.id
   }
+  const orderPriority = (order: Order) => {
+    if (!order.status || order.status === 'pending') return 2
+    if (order.status === 'loan') return 1
+    return 0
+  }
+  const nextOrderId = () => {
+    const prefix = 'order'
+    const maxExisting = orders.reduce((max, o) => {
+      const match = /^order(\d+)$/.exec(o.id ?? '')
+      if (!match) return max
+      const num = Number(match[1])
+      return Number.isNaN(num) ? max : Math.max(max, num)
+    }, 0)
+    return `${prefix}${String(maxExisting + 1).padStart(3, '0')}`
+  }
   const draftTotal = Object.entries(draftQty).reduce(
     (sum, [itemId, qty]) => sum + qty * (itemsById[itemId]?.price ?? 0),
     0
   )
-  const scopedOrders =
-    currentUser && currentUser.role === 'waiter'
-      ? orders.filter((o) => o.waiterId === currentUser.id)
-      : orders
+  const scopedOrders = orders
   const ordersFiltered = scopedOrders.filter((order) => {
+    if (orderWaiterFilter !== 'all' && order.waiterId !== orderWaiterFilter) return false
     const text = `${order.id} ${usersById[order.waiterId]?.name ?? ''}`.toLowerCase()
     return text.includes(search.trim().toLowerCase())
   })
   const activeOrders = ordersFiltered.filter((o) => !o.status || o.status === 'pending')
-  const doneOrders = ordersFiltered.filter((o) => o.status === 'paid' || o.status === 'loan')
-  const orderList = orderFilter === 'all' ? ordersFiltered : orderFilter === 'active' ? activeOrders : doneOrders
+  const paidOrders = ordersFiltered.filter((o) => o.status === 'paid')
+  const loanOrders = ordersFiltered.filter((o) => o.status === 'loan')
+  const doneOrders = [...paidOrders, ...loanOrders]
+  const orderList =
+    orderFilter === 'all'
+      ? ordersFiltered
+      : orderFilter === 'active'
+      ? activeOrders
+      : orderFilter === 'done'
+      ? doneOrders
+      : orderFilter === 'paid'
+      ? paidOrders
+      : loanOrders
+  const orderListSorted = [...orderList].sort((a, b) => {
+    const pa = orderPriority(a)
+    const pb = orderPriority(b)
+    if (pa !== pb) return pb - pa
+    return new Date(b.time).getTime() - new Date(a.time).getTime()
+  })
+  const loanTotals = useMemo(
+    () => ({
+      count: loanOrders.length,
+      amount: loanOrders.reduce((sum, o) => sum + orderTotal(o), 0),
+    }),
+    [loanOrders]
+  )
   const getWeekId = (d: Date) => {
     const date = new Date(Date.UTC(d.getFullYear(), d.getMonth(), d.getDate()))
     const dayNum = date.getUTCDay() || 7
@@ -215,6 +418,8 @@ function App() {
       const t = new Date(o.time).getTime()
       if (start && t < start.getTime()) return false
       if (end && t > end.getTime()) return false
+      if (reportStatus === 'paid' && o.status !== 'paid') return false
+      if (reportStatus === 'loan' && o.status !== 'loan') return false
       return true
     })
 
@@ -239,9 +444,8 @@ function App() {
     return Array.from(buckets.entries())
       .sort(([a], [b]) => (a > b ? -1 : 1))
       .map(([label, stats]) => ({ label, ...stats }))
-  }, [orders, itemsById, reportStart, reportEnd, reportTab])
-  const waitersFiltered = users
-    .filter((u) => u.role === 'waiter')
+  }, [orders, itemsById, reportStart, reportEnd, reportTab, reportStatus])
+  const staffFiltered = users
     .filter((u) => {
       const text = `${u.name} ${u.phone}`.toLowerCase()
       return text.includes(waiterSearch.trim().toLowerCase())
@@ -264,15 +468,11 @@ function App() {
   }, [users, orders])
   const chartPalette = ['#0ea44d', '#3b82f6', '#f59e0b', '#ef4444', '#8b5cf6', '#14b8a6']
   const waiterStatusStats = useMemo(() => {
-    const scoped =
-      currentUser && currentUser.role === 'waiter'
-        ? orders.filter((o) => o.waiterId === currentUser.id)
-        : orders
-    const paid = scoped.filter((o) => o.status === 'paid').length
-    const loan = scoped.filter((o) => o.status === 'loan').length
-    const pending = scoped.filter((o) => !o.status || o.status === 'pending').length
-    return { paid, loan, pending, total: scoped.length }
-  }, [orders, currentUser])
+    const paid = orders.filter((o) => o.status === 'paid').length
+    const loan = orders.filter((o) => o.status === 'loan').length
+    const pending = orders.filter((o) => !o.status || o.status === 'pending').length
+    return { paid, loan, pending, total: orders.length }
+  }, [orders])
 
   const addLog = (entry: Omit<LogEntry, 'id'>) => {
     push(dbPath('log'), entry).catch(() => null)
@@ -284,13 +484,13 @@ function App() {
       case 'login':
         return `${actor} login`
       case 'waiter_add':
-        return `${actor} added waiter ${log.detail ?? ''}`.trim()
+        return `${actor} added staff ${log.detail ?? ''}`.trim()
       case 'waiter_update':
-        return `${actor} updated waiter ${log.detail ?? ''}`.trim()
+        return `${actor} updated staff ${log.detail ?? ''}`.trim()
       case 'waiter_reset_pin':
-        return `${actor} reset waiter PIN ${log.detail ?? ''}`.trim()
+        return `${actor} reset staff PIN ${log.detail ?? ''}`.trim()
       case 'waiter_delete':
-        return `${actor} deleted waiter ${log.detail ?? ''}`.trim()
+        return `${actor} deleted staff ${log.detail ?? ''}`.trim()
       case 'item_add':
         return `${actor} added item ${log.detail ?? ''}`.trim()
       case 'item_update':
@@ -300,6 +500,17 @@ function App() {
       default:
         return `${actor} ${log.type}`
     }
+  }
+
+  const updateItemStock = (id: string, stockStr: string) => {
+    const stock = Number(stockStr)
+    if (Number.isNaN(stock) || stock < 0) {
+      setBanner({ type: 'error', message: 'Stock must be 0 or above.' })
+      return
+    }
+    update(dbPath(`items/${id}`), { stock })
+      .then(() => setBanner({ type: 'success', message: 'Stock updated.' }))
+      .catch((err) => setBanner({ type: 'error', message: err.message }))
   }
 
   const exportReportCSV = () => {
@@ -377,6 +588,8 @@ function App() {
     setOpenAction(null)
     setActionWaiter(null)
     setActionType(null)
+    setActionRole('waiter')
+    setActionPin('')
     setItemModalOpen(false)
     setPendingItemDelete(null)
     setItemActionItem(null)
@@ -384,13 +597,34 @@ function App() {
     setViewItem(null)
     setViewOrder(null)
     setOpenAction(null)
+    setNewWaiterRole('waiter')
+    setLoanCustomerModalOpen(false)
+    setLoanEntryModalOpen(false)
+    setLoanEntryCustomerId('')
+    setLoanEntryOrderId('')
+    setViewLoanCustomer(null)
+    setLoanStatusModalOpen(false)
+    setLoanStatusOrderId('')
+    setLoanStatusCustomerId('')
+    setLoanStatusSearch('')
+    setStockModalItem(null)
+    setStockModalValue('0')
   }
 
   useEffect(() => {
     const unsubUsers = onValue(dbPath('users'), (snap) => {
       const val = snap.val() as Record<string, User> | null
       const list: User[] = val
-        ? Object.entries(val).map(([id, user]) => ({ id, ...(user as Omit<User, 'id'>) }))
+        ? Object.entries(val).map(([dbId, user]) => {
+            const { id: storedId, ...rest } = user as any
+            const role = (user as any).role ?? 'waiter'
+            return {
+              id: storedId ?? dbId,
+              dbId,
+              ...(rest as Omit<User, 'id' | 'dbId'>),
+              role,
+            }
+          })
         : []
       setUsers(list)
 
@@ -403,17 +637,18 @@ function App() {
       }
     })
 
-   const unsubItems = onValue(dbPath('items'), (snap) => {
-    const val = snap.val() as Record<string, Item> | null
-    const list: Item[] = val
-      ? Object.entries(val).map(([id, item]) => ({
-          id,
-          name: item.name,
-          price: item.price ?? 0,
-        }))
-      : []
-    setItems(list)
-  })
+    const unsubItems = onValue(dbPath('items'), (snap) => {
+      const val = snap.val() as Record<string, Item> | null
+      const list: Item[] = val
+        ? Object.entries(val).map(([id, item]) => ({
+            id,
+            name: item.name,
+            price: item.price ?? 0,
+            stock: item.stock ?? 0,
+          }))
+        : []
+      setItems(list)
+    })
 
     const unsubOrders = onValue(dbPath('orders'), (snap) => {
       const val = snap.val() as Record<string, any> | null
@@ -447,7 +682,21 @@ function App() {
             detail: log.detail,
           }))
         : []
-      setLogs(list.sort((a, b) => new Date(b.time).getTime() - new Date(a.time).getTime()).slice(0, 10))
+      setLogs(list.sort((a, b) => new Date(b.time).getTime() - new Date(a.time).getTime()))
+    })
+
+    const unsubLoanCustomers = onValue(dbPath('loanCustomers'), (snap) => {
+      const val = snap.val() as Record<string, any> | null
+      const list: LoanCustomer[] = val
+        ? Object.entries(val).map(([dbId, cust]) => ({
+            id: cust.id ?? dbId,
+            dbId,
+            name: cust.name,
+            phone: cust.phone,
+            loans: cust.loans ?? {},
+          }))
+        : []
+      setLoanCustomers(list)
     })
 
     return () => {
@@ -455,6 +704,7 @@ function App() {
       unsubItems()
       unsubOrders()
       unsubLogs()
+      unsubLoanCustomers()
     }
   }, [db, currentUser])
 
@@ -491,6 +741,7 @@ function App() {
       if (found) {
         setCurrentUser(found)
         if (found.role === 'waiter') setDraftWaiter(found.id)
+        setTab(found.role === 'waiter' || found.role === 'collector' ? 'orders' : 'dash')
       }
     } catch {
       localStorage.removeItem(SESSION_KEY)
@@ -525,7 +776,7 @@ function App() {
     }
 
     const orderRef = push(dbPath('orders'))
-    const orderId = orderRef.key ?? `order-${Date.now()}`
+    const orderId = nextOrderId()
     const itemsMap: Record<string, { qty: number }> = {}
     selected.forEach((s) => {
       itemsMap[s.itemId] = { qty: s.qty }
@@ -551,7 +802,7 @@ function App() {
   const addWaiter = () => {
     setBanner(null)
     if (!newWaiterName.trim() || !newWaiterPhone.trim()) {
-      setBanner({ type: 'error', message: 'Fill name and phone for the new waiter.' })
+      setBanner({ type: 'error', message: 'Fill name and phone for the new staff member.' })
       return
     }
     const pin = '4321'
@@ -561,14 +812,15 @@ function App() {
       name: newWaiterName.trim(),
       phone: newWaiterPhone.trim(),
       pin,
-      role: 'waiter',
+      role: newWaiterRole,
     }
     push(dbPath('users'), newUser)
       .then(() => {
         setNewWaiterName('')
         setNewWaiterPhone('')
+        setNewWaiterRole('waiter')
         setWaiterModalOpen(false)
-        setBanner({ type: 'success', message: 'Waiter added.' })
+        setBanner({ type: 'success', message: `${ROLE_LABEL[newUser.role]} added.` })
         addLog({
           userId: currentUser?.id ?? 'system',
           time: new Date().toISOString(),
@@ -586,15 +838,21 @@ function App() {
       return
     }
     const price = Number(newItemPrice)
+    const stock = Number(newItemStock)
     if (Number.isNaN(price) || price <= 0) {
       setBanner({ type: 'error', message: 'Provide a valid price above 0.' })
       return
     }
-    const newItem = { name: newItemName.trim(), price }
+    if (Number.isNaN(stock) || stock < 0) {
+      setBanner({ type: 'error', message: 'Provide a stock 0 or above.' })
+      return
+    }
+    const newItem = { name: newItemName.trim(), price, stock }
     push(dbPath('items'), newItem)
       .then(() => {
         setNewItemName('')
         setNewItemPrice('0')
+        setNewItemStock('0')
         setItemModalOpen(false)
         setBanner({ type: 'success', message: 'Item added.' })
         addLog({
@@ -611,6 +869,7 @@ function App() {
     if (!itemActionItem) return
     const name = itemActionName.trim()
     const price = Number(itemActionPrice)
+    const stock = Number(itemActionStock)
     if (!name) {
       setBanner({ type: 'error', message: 'Provide an item name.' })
       return
@@ -619,7 +878,11 @@ function App() {
       setBanner({ type: 'error', message: 'Provide a valid price above 0.' })
       return
     }
-    update(dbPath(`items/${itemActionItem.id}`), { name, price })
+    if (Number.isNaN(stock) || stock < 0) {
+      setBanner({ type: 'error', message: 'Provide a stock 0 or above.' })
+      return
+    }
+    update(dbPath(`items/${itemActionItem.id}`), { name, price, stock })
       .then(() => {
         setItemActionItem(null)
         setOpenItemAction(null)
@@ -649,8 +912,71 @@ function App() {
       .catch((err) => setBanner({ type: 'error', message: err.message }))
   }
 
+  const addLoanCustomer = () => {
+    if (!newLoanCustomerName.trim() || !newLoanCustomerPhone.trim()) {
+      setBanner({ type: 'error', message: 'Provide name and phone for loan customer.' })
+      return
+    }
+    const ref = push(dbPath('loanCustomers'))
+    const id = ref.key ?? `loan-cust-${Date.now()}`
+    const payload = {
+      id,
+      name: newLoanCustomerName.trim(),
+      phone: newLoanCustomerPhone.trim(),
+      registeredBy: currentUser?.id ?? 'system',
+    }
+    set(ref, payload)
+      .then(() => {
+        setNewLoanCustomerName('')
+        setNewLoanCustomerPhone('+25290')
+        setLoanCustomerModalOpen(false)
+        setBanner({ type: 'success', message: 'Loan customer added.' })
+      })
+      .catch((err) => setBanner({ type: 'error', message: err.message }))
+  }
+
+  const addLoanEntry = () => {
+    if (!loanEntryCustomerId || !loanEntryOrderId) {
+      setBanner({ type: 'error', message: 'Select customer and loan order.' })
+      return
+    }
+    const customer = loanCustomers.find((c) => c.id === loanEntryCustomerId)
+    const order = orders.find((o) => o.id === loanEntryOrderId)
+    if (!customer || !order) {
+      setBanner({ type: 'error', message: 'Invalid selection.' })
+      return
+    }
+    const entryId = `loan-${Date.now()}`
+    const amount = orderTotal(order)
+    const servedBy = usersById[order.waiterId]?.name ?? order.waiterId
+    const entry: LoanEntry = { id: entryId, orderId: order.id, amount, date: order.time, servedBy }
+    const pathId = customer.dbId ?? customer.id
+    update(dbPath(`loanCustomers/${pathId}/loans/${entryId}`), entry)
+      .then(() => {
+        setLoanEntryCustomerId('')
+        setLoanEntryOrderId('')
+        setLoanEntryModalOpen(false)
+        setBanner({ type: 'success', message: 'Loan entry added.' })
+      })
+      .catch((err) => setBanner({ type: 'error', message: err.message }))
+  }
+
+  const addLoanEntryForOrder = (order: Order, customer: LoanCustomer) => {
+    const pathId = customer.dbId ?? customer.id
+    const existing = Object.values(customer.loans ?? {}).find((l) => l.orderId === order.id)
+    if (existing) return Promise.resolve()
+    const ref = push(dbPath(`loanCustomers/${pathId}/loans`))
+    const entryId = ref.key ?? `loan-${Date.now()}`
+    const amount = orderTotal(order)
+    const servedBy = usersById[order.waiterId]?.name ?? order.waiterId
+    const entry: LoanEntry = { id: entryId, orderId: order.id, amount, date: order.time, servedBy }
+    return set(ref, entry)
+  }
+
   const resetWaiterPin = (id: string) => {
-    update(dbPath(`users/${id}`), { pin: '0000' })
+    const target = users.find((u) => u.id === id)
+    const pathId = target?.dbId ?? id
+    update(dbPath(`users/${pathId}`), { pin: '0000' })
       .then(() => {
         setBanner({ type: 'success', message: 'PIN reset to 0000.' })
         addLog({
@@ -663,16 +989,29 @@ function App() {
       .catch((err) => setBanner({ type: 'error', message: err.message }))
   }
 
-  const updateWaiterProfile = (id: string, name: string, phone: string) => {
+  const updateWaiterProfile = (id: string, name: string, phone: string, role: Role, pin?: string) => {
     const nextName = name.trim()
     const nextPhone = phone.trim()
     if (!nextName || !nextPhone) {
       setBanner({ type: 'error', message: 'Provide both name and phone.' })
       return
     }
-    update(dbPath(`users/${id}`), { name: nextName, phone: nextPhone })
+    const target = users.find((u) => u.id === id)
+    if (target?.role === 'admin' && currentUser?.id !== id) {
+      setBanner({ type: 'error', message: 'Admins cannot modify another admin.' })
+      return
+    }
+    if (pin && !/^\d{4}$/.test(pin.trim())) {
+      setBanner({ type: 'error', message: 'PIN must be 4 digits.' })
+      return
+    }
+    const enforcedRole = target?.role === 'admin' || currentUser?.id === id ? target?.role ?? role : role
+    const pathId = target?.dbId ?? id
+    const updatePayload: Partial<User> & { role: Role } = { name: nextName, phone: nextPhone, role: enforcedRole }
+    if (pin?.trim()) updatePayload.pin = pin.trim()
+    update(dbPath(`users/${pathId}`), updatePayload)
       .then(() => {
-        setBanner({ type: 'success', message: 'Waiter updated.' })
+        setBanner({ type: 'success', message: 'Staff updated.' })
         addLog({
           userId: currentUser?.id ?? 'system',
           time: new Date().toISOString(),
@@ -684,13 +1023,19 @@ function App() {
   }
 
   const deleteWaiter = (id: string) => {
+    const target = users.find((u) => u.id === id)
+    if (target?.role === 'admin' && currentUser?.id !== id) {
+      setBanner({ type: 'error', message: 'Admins cannot remove another admin.' })
+      return
+    }
     if (currentUser?.id === id) {
       setBanner({ type: 'error', message: 'Cannot delete the signed-in user.' })
       return
     }
-    remove(dbPath(`users/${id}`))
+    const pathId = target?.dbId ?? id
+    remove(dbPath(`users/${pathId}`))
       .then(() => {
-        setBanner({ type: 'success', message: 'Waiter removed.' })
+        setBanner({ type: 'success', message: 'Staff removed.' })
         addLog({
           userId: currentUser?.id ?? 'system',
           time: new Date().toISOString(),
@@ -709,9 +1054,49 @@ function App() {
   }
 
   const statusLabel = (status?: string) => {
-    if (!status || status === 'pending') return { text: 'Active', tone: 'pending' }
-    return { text: 'Done', tone: 'done' }
+    if (!status || status === 'pending') return { text: tr(language, 'statusActive'), tone: 'pending' }
+    return { text: tr(language, 'statusDone'), tone: 'done' }
   }
+
+  const handleStatusChange = (order: Order, status: 'paid' | 'loan' | 'pending') => {
+    if (status === 'loan') {
+      setLoanStatusOrderId(order.id)
+      setLoanStatusModalOpen(true)
+      setLoanStatusCustomerId('')
+      setLoanStatusSearch('')
+      return
+    }
+    updateOrderStatus(order.id, status)
+  }
+
+  const confirmLoanStatus = () => {
+    if (!loanStatusOrderId || !loanStatusCustomerId) {
+      setBanner({ type: 'error', message: 'Select a loan customer.' })
+      return
+    }
+    const order = orders.find((o) => o.id === loanStatusOrderId)
+    const customer = loanCustomers.find((c) => c.id === loanStatusCustomerId)
+    if (!order || !customer) {
+      setBanner({ type: 'error', message: 'Invalid selection.' })
+      return
+    }
+    updateOrderStatus(order.id, 'loan')
+    addLoanEntryForOrder(order, customer).finally(() => {
+      setLoanStatusModalOpen(false)
+      setLoanStatusOrderId('')
+      setLoanStatusCustomerId('')
+      setLoanStatusSearch('')
+    })
+  }
+
+  const loanCustomersFiltered = loanCustomers.filter((c) => {
+    const text = `${c.name} ${c.phone}`.toLowerCase()
+    return text.includes(loanCustomerSearch.trim().toLowerCase())
+  })
+  const loanCustomersModalFiltered = loanCustomers.filter((c) => {
+    const text = `${c.name} ${c.phone}`.toLowerCase()
+    return text.includes(loanStatusSearch.trim().toLowerCase())
+  })
 
   const handleLogin = () => {
     if (users.length === 0) {
@@ -740,7 +1125,7 @@ function App() {
 
     setAuthError('')
     setCurrentUser(match)
-    setTab('dash')
+    setTab(match.role === 'waiter' || match.role === 'collector' ? 'orders' : 'dash')
     setSidebarOpen(false)
     setProfileOpen(false)
     addLog({ userId: match.id, time: new Date().toISOString(), type: 'login' })
@@ -780,33 +1165,32 @@ function App() {
         <div className="auth">
           <div className="auth__card">
             <div className="chef-icon" aria-hidden />
-            <h1 className="auth__title">RestoDash Login</h1>
-            <p className="auth__hint">Access your management panel.</p>
+            <h1 className="auth__title">{tr(language, 'loginTitle')}</h1>
+            <p className="auth__hint">{tr(language, 'loginHint')}</p>
             <div className="auth__form">
               <label className="field">
-                <span>Phone Number</span>
+                <span>{tr(language, 'phoneNumber')}</span>
                 <input
                   type="tel"
                   value={authPhone}
                   onChange={(e) => setAuthPhone(e.target.value)}
-                  placeholder="e.g., +252907273303"
+                  placeholder="e.g., +252901234567"
                 />
               </label>
               <label className="field">
-                <span>PIN (4 digits)</span>
+                <span>{tr(language, 'pinDigits')}</span>
                 <input
                   type="password"
                   value={authPin}
                   onChange={(e) => setAuthPin(e.target.value)}
+                  inputMode="numeric"
+                  pattern="[0-9]*"
                   placeholder="****"
                 />
               </label>
               {authError && <div className="banner banner--error">{authError}</div>}
               <button className="primary auth__btn" onClick={handleLogin}>
-                <span className="auth__btn-icon" aria-hidden>
-                  ↘
-                </span>
-                Sign In
+                {tr(language, 'signIn')}
               </button>
             </div>
           </div>
@@ -836,31 +1220,37 @@ function App() {
                 className={`sidebar__item ${tab === 'dash' ? 'active' : ''}`}
                 onClick={() => { setTab('dash'); setSidebarOpen(false) }}
               >
-                <FiHome /> <span>Dashboard</span>
+                <FiHome /> <span>{tr(language, 'dashboardTitle')}</span>
               </button>
               <button
                 className={`sidebar__item ${tab === 'orders' ? 'active' : ''}`}
                 onClick={() => { setTab('orders'); setSidebarOpen(false) }}
               >
-                <FiFileText /> <span>Orders</span>
+                <FiFileText /> <span>{tr(language, 'orders')}</span>
+              </button>
+              <button
+                className={`sidebar__item ${tab === 'loans' ? 'active' : ''}`}
+                onClick={() => { setTab('loans'); setSidebarOpen(false) }}
+              >
+                <FiDollarSign /> <span>{tr(language, 'loans')}</span>
               </button>
               <button
                 className={`sidebar__item ${tab === 'staff' ? 'active' : ''}`}
                 onClick={() => { setTab('staff'); setSidebarOpen(false) }}
               >
-                <FiUsers /> <span>Waiters</span>
+                <FiUsers /> <span>{tr(language, 'staff')}</span>
               </button>
               <button
                 className={`sidebar__item ${tab === 'items' ? 'active' : ''}`}
                 onClick={() => { setTab('items'); setSidebarOpen(false) }}
               >
-                <FiBox /> <span>Order Items</span>
+                <FiBox /> <span>{tr(language, 'items')}</span>
               </button>
               <button
                 className={`sidebar__item ${tab === 'reports' ? 'active' : ''}`}
                 onClick={() => { setTab('reports'); setSidebarOpen(false) }}
               >
-                <FiBarChart2 /> <span>Reports</span>
+                <FiBarChart2 /> <span>{tr(language, 'reports')}</span>
               </button>
             </nav>
           </aside>
@@ -877,9 +1267,18 @@ function App() {
               <div className={`brand ${isAdmin ? '' : 'brand--standalone'}`}>RestoDash</div>
             </div>
             <div className="topbar__user">
+              <div className="quick-actions">
+                <button
+                  className="lang-chip"
+                  onClick={() => setLanguage((prev) => (prev === 'en' ? 'so' : 'en'))}
+                  aria-label="Toggle language"
+                >
+                  {language === 'en' ? 'EN' : 'SO'}
+                </button>
+              </div>
               <div className="topbar__meta">
                 <strong>{currentUser.name}</strong>
-                <span>{currentUser.role === 'waiter' ? 'Waiter' : 'Admin'}</span>
+                <span>{ROLE_LABEL[currentUser.role]}</span>
               </div>
               <button
                 ref={avatarRef}
@@ -893,10 +1292,27 @@ function App() {
                 <div className="profile-card" ref={profileCardRef}>
                   <p className="profile-name">{currentUser.name}</p>
                   <p className="profile-meta">{currentUser.phone}</p>
-                  <p className="profile-meta">{currentUser.role}</p>
-                  <button className="signout-btn block" onClick={handleLogout}>
-                    Sign out
-                  </button>
+                  <p className="profile-meta">{ROLE_LABEL[currentUser.role]}</p>
+                  <div className="profile-actions">
+                    <button
+                      className="text-btn"
+                      onClick={() => {
+                        closeOverlays()
+                        setActionWaiter(currentUser)
+                        setActionType('profile')
+                        setActionName(currentUser.name)
+                        setActionPhone(currentUser.phone)
+                        setActionRole(currentUser.role)
+                        setActionPin('')
+                        setProfileOpen(false)
+                      }}
+                    >
+                      Edit profile
+                    </button>
+                    <button className="signout-btn block" onClick={handleLogout}>
+                      Sign out
+                    </button>
+                  </div>
                 </div>
               )}
             </div>
@@ -907,7 +1323,7 @@ function App() {
               <>
                 <div className="page-title-row">
                   <div>
-                    <h1 className="page-title">Dashboard</h1>
+                    <h1 className="page-title">{tr(language, 'dashboardTitle')}</h1>
                   </div>
                 </div>
                 {banner && <div className={`banner banner--${banner.type}`}>{banner.message}</div>}
@@ -924,8 +1340,8 @@ function App() {
                   </div>
                   {isAdmin && (
                     <div className="metric-card gradient">
-                      <p>Waiters</p>
-                      <strong>{metrics.waiterCount}</strong>
+                      <p>Staff</p>
+                      <strong>{metrics.staffCount}</strong>
                       <FiUserCheck className="metric-icon" aria-hidden />
                     </div>
                   )}
@@ -974,9 +1390,9 @@ function App() {
                     {logs.length > 0 && (
                       <div className="panel light logs-panel">
                         <div className="panel__head">
-                          <h3>Recent Logins</h3>
+                          <h3>Recents</h3>
                         </div>
-                        <ul className="logs">
+                        <ul className="logs" style={{ maxHeight: '280px', overflowY: 'auto' }}>
                           {logs.map((log) => (
                             <li key={log.id}>
                               <span className="logs__user">{renderLogMessage(log)}</span>
@@ -995,30 +1411,57 @@ function App() {
               <>
                 <div className="page-title-row">
                   <div>
-                    <h1 className="page-title">Orders</h1>
+                    <h1 className="page-title">{tr(language, 'ordersTitle')}</h1>
                   </div>
-              </div>
+                </div>
               <input
                 className="search"
                 type="search"
-                placeholder="Search by Order ID (last 4 digits) or Waiter Name"
+                placeholder={tr(language, 'searchOrders')}
                 value={search}
                 onChange={(e) => setSearch(e.target.value)}
               />
-              <div className="chip-row">
-                {(['all', 'active', 'done'] as const).map((f) => (
-                  <button
-                    key={f}
-                    className={`chip ${orderFilter === f ? 'active' : ''}`}
-                    onClick={() => setOrderFilter(f)}
-                  >
-                    {f === 'all' ? 'All' : f === 'active' ? 'Active' : 'Done'}
-                  </button>
-                ))}
-              </div>
+                <div className="toolbar toolbar--inline" style={{ marginTop: 8 }}>
+                  <label className="field" style={{ minWidth: 200 }}>
+                    <span>Waiter</span>
+                    <select
+                      className="field-input"
+                      value={orderWaiterFilter}
+                      onChange={(e) => setOrderWaiterFilter(e.target.value)}
+                    >
+                      <option value="all">All waiters</option>
+                      {users
+                        .filter((u) => u.role === 'waiter')
+                        .map((w) => (
+                          <option key={w.id} value={w.id}>
+                            {w.name}
+                          </option>
+                        ))}
+                    </select>
+                  </label>
+                </div>
+                <div className="chip-row">
+                  {(['all', 'active', 'paid', 'loan', 'done'] as const).map((f) => (
+                    <button
+                      key={f}
+                      className={`chip ${orderFilter === f ? 'active' : ''}`}
+                      onClick={() => setOrderFilter(f)}
+                    >
+                      {f === 'all'
+                        ? tr(language, 'all')
+                        : f === 'active'
+                        ? tr(language, 'active')
+                        : f === 'paid'
+                        ? tr(language, 'paid')
+                        : f === 'loan'
+                        ? tr(language, 'loan')
+                        : tr(language, 'done')}
+                    </button>
+                  ))}
+                </div>
               <div className="order-list-card">
-                {orderList.length === 0 && <div className="empty light">No orders found.</div>}
-                {orderList.map((order) => (
+                {orderListSorted.length === 0 && <div className="empty light">{tr(language, 'noOrders')}</div>}
+                {orderListSorted.map((order) => (
                   <div
                     key={order.id}
                     className="order-card light"
@@ -1028,21 +1471,24 @@ function App() {
                           <div className="order-card__row">
                             <div>
                               <p className="order-id">{orderTitle(order)}</p>
-                              <p className="order-meta">Served by: {usersById[order.waiterId]?.name ?? order.waiterId}</p>
+                              <p className="order-meta">
+                                Served by: {usersById[order.waiterId]?.name ?? order.waiterId}{' '}
+                                ({usersById[order.waiterId] ? ROLE_LABEL[usersById[order.waiterId].role] : 'User'})
+                              </p>
                             </div>
                             <div className="order-amount">
                               <div className="order-amount__top">
-                                <span className="order-price">{formatPrice(orderTotal(order))}</span>
-                                <select
-                                  className="status-select"
-                                  value={order.status ?? 'pending'}
-                                  onChange={(e) => updateOrderStatus(order.id, e.target.value as 'paid' | 'loan' | 'pending')}
-                                  onClick={(e) => e.stopPropagation()}
-                                >
-                                  <option value="pending">Pending</option>
-                                  <option value="paid">Paid</option>
-                                  <option value="loan">Loan</option>
-                                </select>
+                            <span className="order-price">{formatPrice(orderTotal(order))}</span>
+                            <select
+                              className="status-select"
+                              value={order.status ?? 'pending'}
+                              onChange={(e) => handleStatusChange(order, e.target.value as 'paid' | 'loan' | 'pending')}
+                              onClick={(e) => e.stopPropagation()}
+                            >
+                              <option value="pending">{tr(language, 'statusPending')}</option>
+                              <option value="paid">{tr(language, 'statusPaid')}</option>
+                              <option value="loan">{tr(language, 'statusLoan')}</option>
+                            </select>
                               </div>
                               <span className={`status-chip ${statusLabel(order.status).tone}`}>
                                 {statusLabel(order.status).text}
@@ -1063,14 +1509,14 @@ function App() {
               <>
                 <div className="page-title-row">
                   <div>
-                    <h1 className="page-title">Waiters</h1>
+                    <h1 className="page-title">{tr(language, 'staffTitle')}</h1>
                   </div>
                 </div>
                 <div className="panel light staff-form">
                   <div className="toolbar toolbar--inline">
                     <input
                       className="search"
-                      placeholder="Search waiter by name or phone"
+                      placeholder={tr(language, 'searchUsers')}
                       value={waiterSearch}
                       onChange={(e) => setWaiterSearch(e.target.value)}
                     />
@@ -1081,96 +1527,208 @@ function App() {
                         setWaiterModalOpen(true)
                       }}
                     >
-                      + Add waiter
+                      {tr(language, 'addUser')}
                     </button>
                   </div>
-                  <div className="table">
+                  <div className="table table--staff">
                     <div className="table__head">
                       <span>No.</span>
-                      <span>Name</span>
-                      <span>Phone</span>
-                      <span>Actions</span>
+                      <span>{tr(language, 'name')}</span>
+                      <span>{tr(language, 'phone')}</span>
+                      <span>{tr(language, 'statusActive')}</span>
+                      <span>{tr(language, 'actions')}</span>
                     </div>
-                    {waitersFiltered.length === 0 && <div className="empty light">No waiters found.</div>}
-                    {waitersFiltered.map((waiter, idx) => (
-                      <div key={waiter.id} className="table__row">
-                        <span>{idx + 1}.</span>
-                        <span>{waiter.name}</span>
-                        <span>{waiter.phone}</span>
-                        <div className="action-menu">
-                          <button
-                            className="action-dots"
-                            onClick={() => {
-                              setPendingDelete(null)
-                              setActionWaiter(waiter)
-                              setActionType(null)
-                              setOpenAction(waiter.id)
-                            }}
-                            aria-haspopup="menu"
-                          >
-                            ⋮
-                          </button>
+                    {staffFiltered.length === 0 && <div className="empty light">{tr(language, 'noUsers')}</div>}
+                    {staffFiltered.map((waiter, idx) => {
+                      const isTargetAdmin = waiter.role === 'admin'
+                      const isSelf = waiter.id === currentUser.id
+                      return (
+                        <div key={waiter.id} className="table__row">
+                          <span>{idx + 1}.</span>
+                          <span>{waiter.name}</span>
+                          <span>{waiter.phone}</span>
+                          <span>{ROLE_LABEL[waiter.role]}</span>
+                          <span className="action-menu">
+                            {isTargetAdmin && !isSelf ? (
+                              <span className="order-meta">Locked</span>
+                            ) : (
+                              <button
+                                className="action-dots"
+                onClick={() => {
+                  setPendingDelete(null)
+                  setActionWaiter(waiter)
+                  setActionType(null)
+                  setActionRole(waiter.role)
+                  setActionPin('')
+                  setOpenAction(waiter.id)
+                }}
+                aria-haspopup="menu"
+              >
+                ⋮
+                              </button>
+                            )}
+                          </span>
                         </div>
-                      </div>
-                    ))}
+                      )
+                    })}
                   </div>
                 </div>
               </>
             )}
 
-            {tab === 'items' && currentUser.role === 'admin' && (
+            {tab === 'loans' && (
               <>
                 <div className="page-title-row">
                   <div>
-                    <h1 className="page-title">Items</h1>
+                    <h1 className="page-title">{tr(language, 'loanBook')}</h1>
+                  </div>
+                </div>
+                <div className="toolbar toolbar--inline">
+                    <input
+                      className="search"
+                      placeholder={tr(language, 'searchLoanCustomers')}
+                      value={loanCustomerSearch}
+                      onChange={(e) => setLoanCustomerSearch(e.target.value)}
+                    />
+                    <div className="staff-manage__actions">
+                      <button
+                        className="primary"
+                        onClick={() => {
+                          closeOverlays()
+                          setLoanCustomerModalOpen(true)
+                        }}
+                      >
+                      {tr(language, 'addLoanCustomer')}
+                      </button>
+                      <button
+                        className="pill-btn"
+                        onClick={() => {
+                          closeOverlays()
+                          setLoanEntryModalOpen(true)
+                        }}
+                      >
+                      {tr(language, 'addLoanEntry')}
+                      </button>
+                    </div>
+                </div>
+                  <div className="card-grid">
+                    <div className="metric-card gradient">
+                    <p>{tr(language, 'loanOrders')}</p>
+                    <strong>{loanTotals.count}</strong>
+                    <FiList className="metric-icon" aria-hidden />
+                  </div>
+                  <div className="metric-card gradient">
+                    <p>{tr(language, 'loanAmount')}</p>
+                    <strong>{formatPrice(loanTotals.amount)}</strong>
+                    <FiDollarSign className="metric-icon" aria-hidden />
+                  </div>
+                </div>
+                <div className="panel light">
+                  {loanCustomersFiltered.length === 0 && <div className="empty light">{tr(language, 'noLoanCustomers')}</div>}
+                  {loanCustomersFiltered.map((cust) => {
+                    const loans = Object.values(cust.loans ?? {})
+                    const totalLoan = loans.reduce((sum, l) => sum + l.amount, 0)
+                    const loanCount = loans.length
+                    return (
+                      <div
+                        key={cust.id}
+                        className="loan-card"
+                        role="button"
+                        onClick={() => setViewLoanCustomer(cust)}
+                      >
+                        <div className="loan-card__header">
+                          <div>
+                            <p className="loan-name">{cust.name}</p>
+                            <p className="order-meta">{cust.phone}</p>
+                          </div>
+                          <div className="loan-totals">
+                            {loanCount > 0 ? (
+                              <span className="loan-chip">
+                                <span className="dot" /> {loanCount} loan{loanCount === 1 ? '' : 's'}
+                              </span>
+                            ) : (
+                              <span className="order-meta">No loans</span>
+                            )}
+                            <strong>{formatPrice(totalLoan)}</strong>
+                          </div>
+                        </div>
+                      </div>
+                    )
+                  })}
+                </div>
+              </>
+            )}
+
+            {tab === 'items' && (
+              <>
+                <div className="page-title-row">
+                  <div>
+                    <h1 className="page-title">{tr(language, 'itemsTitle')}</h1>
                   </div>
                 </div>
                 <div className="panel light staff-form">
                   <div className="toolbar toolbar--inline">
                     <input
                       className="search"
-                      placeholder="Search items"
+                      placeholder={tr(language, 'searchItems')}
                       value={itemManageSearch}
                       onChange={(e) => setItemManageSearch(e.target.value)}
                     />
-                    <button
-                      className="primary"
-                      onClick={() => {
-                        closeOverlays()
-                        setItemModalOpen(true)
-                      }}
-                    >
-                      + Add item
-                    </button>
+                    {currentUser.role === 'admin' && (
+                      <button
+                        className="primary"
+                        onClick={() => {
+                          closeOverlays()
+                          setItemModalOpen(true)
+                        }}
+                      >
+                        {tr(language, 'addItem')}
+                      </button>
+                    )}
                   </div>
-                  <div className="table">
+                  <div className="table table--items">
                     <div className="table__head">
                       <span>No.</span>
-                      <span>Name</span>
-                      <span>Price</span>
-                      <span>Actions</span>
+                      <span>{tr(language, 'name')}</span>
+                      <span>{tr(language, 'price')}</span>
+                      <span>{tr(language, 'stock')}</span>
+                      {currentUser.role === 'admin' && <span>{tr(language, 'actions')}</span>}
                     </div>
-                    {itemsFiltered.length === 0 && <div className="empty light">No items found.</div>}
+                    {itemsFiltered.length === 0 && <div className="empty light">{tr(language, 'noItems')}</div>}
                     {itemsFiltered.map((item, idx) => (
-                      <div key={item.id} className="table__row">
+                      <div
+                        key={item.id}
+                        className="table__row"
+                        role={currentUser.role !== 'admin' ? 'button' : undefined}
+                        onClick={() => {
+                          if (currentUser.role !== 'admin') {
+                            setStockModalItem(item)
+                            setStockModalValue(String(item.stock ?? 0))
+                          }
+                        }}
+                      >
                         <span>{idx + 1}.</span>
                         <span>{item.name}</span>
                         <span>{formatPrice(item.price)}</span>
-                        <div className="action-menu">
-                          <button
-                            className="action-dots"
-                            onClick={() => {
-                              setOpenItemAction(item.id)
-                              setItemActionItem(item)
-                              setItemActionName(item.name)
-                              setItemActionPrice(String(item.price))
-                              setPendingItemDelete(null)
-                            }}
-                            aria-haspopup="menu"
-                          >
-                            ⋮
-                          </button>
-                        </div>
+                        <span>{item.stock ?? 0}</span>
+                        {currentUser.role === 'admin' ? (
+                          <div className="action-menu">
+                            <button
+                              className="action-dots"
+                              onClick={() => {
+                                setOpenItemAction(item.id)
+                                setItemActionItem(item)
+                                setItemActionName(item.name)
+                                setItemActionPrice(String(item.price))
+                                setItemActionStock(String(item.stock ?? 0))
+                                setPendingItemDelete(null)
+                              }}
+                              aria-haspopup="menu"
+                            >
+                              ⋮
+                            </button>
+                          </div>
+                        ) : null}
                       </div>
                     ))}
                   </div>
@@ -1182,7 +1740,7 @@ function App() {
               <>
                 <div className="page-title-row">
                   <div>
-                    <h1 className="page-title">Reports</h1>
+                    <h1 className="page-title">{tr(language, 'reportsTitle')}</h1>
                   </div>
                 </div>
                 <div className="report-tabs">
@@ -1208,6 +1766,17 @@ function App() {
                       value={reportEnd}
                       onChange={(e) => setReportEnd(e.target.value)}
                     />
+                  </div>
+                  <div className="chip-row report-status">
+                    {(['all', 'paid', 'loan'] as const).map((status) => (
+                      <button
+                        key={status}
+                        className={`chip ${reportStatus === status ? 'active' : ''}`}
+                        onClick={() => setReportStatus(status)}
+                      >
+                        {status === 'all' ? 'All' : status === 'paid' ? 'Paid' : 'Loan'}
+                      </button>
+                    ))}
                   </div>
                   <div className="export-btns">
                     <button className="pill-btn" onClick={printReport}>
@@ -1269,16 +1838,24 @@ function App() {
         <nav className="tabbar">
           <button className={`tabbar__btn ${tab === 'dash' ? 'active' : ''}`} onClick={() => setTab('dash')}>
             <FiHome />
-            <span>Dash</span>
+            <span>{tr(language, 'dash')}</span>
           </button>
           <button className={`tabbar__btn ${tab === 'orders' ? 'active' : ''}`} onClick={() => setTab('orders')}>
             <FiFileText />
-            <span>Orders</span>
+            <span>{tr(language, 'orders')}</span>
+          </button>
+          <button className={`tabbar__btn ${tab === 'items' ? 'active' : ''}`} onClick={() => setTab('items')}>
+            <FiBox />
+            <span>{tr(language, 'items')}</span>
+          </button>
+          <button className={`tabbar__btn ${tab === 'loans' ? 'active' : ''}`} onClick={() => setTab('loans')}>
+            <FiDollarSign />
+            <span>{tr(language, 'loans')}</span>
           </button>
           {currentUser.role === 'admin' && (
             <button className={`tabbar__btn ${tab === 'staff' ? 'active' : ''}`} onClick={() => setTab('staff')}>
               <FiUsers />
-              <span>Staff</span>
+              <span>{tr(language, 'staff')}</span>
             </button>
           )}
         </nav>
@@ -1288,7 +1865,7 @@ function App() {
         <div className="modal">
           <div className="modal__content">
             <div className="modal__head">
-              <h3>New Order</h3>
+              <h3>{tr(language, 'newOrderTitle')}</h3>
               <button className="icon-btn" onClick={() => setShowOrderModal(false)} aria-label="Close">
                 ✕
               </button>
@@ -1296,7 +1873,7 @@ function App() {
             <input
               className="search"
               type="search"
-              placeholder="Search menu items..."
+              placeholder={tr(language, 'searchMenu')}
               value={itemSearch}
               onChange={(e) => setItemSearch(e.target.value)}
             />
@@ -1305,21 +1882,31 @@ function App() {
                 .filter((item) => item.name.toLowerCase().includes(itemSearch.trim().toLowerCase()))
                 .map((item) => {
                   const qty = draftQty[item.id] ?? 0
+                  const stock = typeof item.stock === 'number' ? item.stock : Infinity
+                  const remaining = stock === Infinity ? '∞' : Math.max(0, stock - qty)
+                  const atCap = stock !== Infinity && qty >= stock
                   return (
                     <div key={item.id} className="item-row">
                       <div>
                         <p className="item-name">{item.name}</p>
-                        <p className="item-meta">{formatPrice(item.price)}</p>
+                        <p className="item-meta">
+                          {formatPrice(item.price)} {stock !== Infinity && <span>· Stock left: {remaining}</span>}
+                        </p>
                       </div>
                       <div className="qty-changer">
                         <button
                           className="qty-btn"
                           onClick={() => updateDraftQty(item.id, Math.max(0, qty - 1))}
+                          disabled={qty === 0}
                         >
                           −
                         </button>
                         <span className="qty">{qty}</span>
-                        <button className="qty-btn plus" onClick={() => updateDraftQty(item.id, qty + 1)}>
+                        <button
+                          className="qty-btn plus"
+                          onClick={() => updateDraftQty(item.id, stock === Infinity ? qty + 1 : Math.min(stock, qty + 1))}
+                          disabled={atCap}
+                        >
                           +
                         </button>
                       </div>
@@ -1328,11 +1915,11 @@ function App() {
                 })}
             </div>
             <div className="modal__total">
-              <span>Total:</span>
+              <span>{tr(language, 'total')}:</span>
               <strong>{formatPrice(draftTotal)}</strong>
             </div>
             <button className="primary block" onClick={handleCreateOrder}>
-              <span className="btn-icon"><FiClipboard aria-hidden /></span> Submit Order
+              <span className="btn-icon"><FiClipboard aria-hidden /></span> {tr(language, 'submitOrder')}
             </button>
           </div>
         </div>
@@ -1342,7 +1929,7 @@ function App() {
         <div className="modal">
           <div className="modal__content">
             <div className="modal__head">
-              <h3>Add Waiter</h3>
+              <h3>Add User</h3>
               <button className="icon-btn" onClick={() => setWaiterModalOpen(false)} aria-label="Close">
                 ✕
               </button>
@@ -1350,7 +1937,7 @@ function App() {
             <div className="modal__items">
               <input
                 className="field-input"
-                placeholder="Waiter name"
+                placeholder="Name"
                 value={newWaiterName}
                 onChange={(e) => setNewWaiterName(e.target.value)}
               />
@@ -1359,11 +1946,20 @@ function App() {
                 placeholder="Phone"
                 value={newWaiterPhone}
                 onChange={(e) => setNewWaiterPhone(e.target.value)}
+                type="tel"
               />
+              <label className="field">
+                <span>Role</span>
+                <select className="field-input" value={newWaiterRole} onChange={(e) => setNewWaiterRole(e.target.value as Role)}>
+                  <option value="waiter">Waiter</option>
+                  <option value="collector">Collector</option>
+                  <option value="admin">Admin</option>
+                </select>
+              </label>
             </div>
             <p className="order-meta">Default PIN: 4321</p>
             <button className="primary block" onClick={addWaiter}>
-              Add waiter
+              {tr(language, 'addUser')}
             </button>
           </div>
         </div>
@@ -1406,29 +2002,40 @@ function App() {
               </button>
             </div>
               <p className="order-meta">Set the item name and price.</p>
-            <div className="modal__items">
-              <label className="field">
-                <span>Item name</span>
-                <input
-                  className="field-input"
+              <div className="modal__items">
+                <label className="field">
+                  <span>Item name</span>
+                  <input
+                    className="field-input"
                   placeholder="Item name"
                   value={newItemName}
                   onChange={(e) => setNewItemName(e.target.value)}
                 />
               </label>
-              <label className="field">
-                <span>Price</span>
-                <input
-                  className="field-input"
-                  placeholder="Price"
-                  type="number"
-                  value={newItemPrice}
-                  onChange={(e) => setNewItemPrice(e.target.value)}
-                />
-              </label>
+                <label className="field">
+                  <span>Price</span>
+                  <input
+                    className="field-input"
+                    placeholder="Price"
+                    type="number"
+                    value={newItemPrice}
+                    onChange={(e) => setNewItemPrice(e.target.value)}
+                  />
+                </label>
+                <label className="field">
+                  <span>Stock</span>
+                  <input
+                    className="field-input"
+                    placeholder="0"
+                    type="number"
+                    value={newItemStock}
+                    min="0"
+                    onChange={(e) => setNewItemStock(e.target.value)}
+                  />
+                </label>
             </div>
             <button className="primary block" onClick={addItem}>
-              Add item
+              {tr(language, 'addItem')}
             </button>
           </div>
         </div>
@@ -1466,8 +2073,17 @@ function App() {
               </button>
             </div>
             <p className="order-meta">
-              Served by: <strong>{usersById[viewOrder.waiterId]?.name ?? 'Unknown'}</strong>
+              Served by:{' '}
+              <strong>
+                {usersById[viewOrder.waiterId]?.name ?? 'Unknown'} (
+                {usersById[viewOrder.waiterId] ? ROLE_LABEL[usersById[viewOrder.waiterId].role] : 'User'})
+              </strong>
             </p>
+            {viewOrder.collector && (
+              <p className="order-meta">
+                Collected by: <strong>{viewOrder.collector}</strong>
+              </p>
+            )}
             <p className="order-meta">Time: {formatDateTime(viewOrder.time)}</p>
             <div className="table">
               <div className="table__head">
@@ -1508,12 +2124,14 @@ function App() {
         <div className="modal" onClick={() => setOpenAction(null)}>
           <div className="modal__content" onClick={(e) => e.stopPropagation()}>
             <div className="modal__head">
-              <h3>Waiter Actions</h3>
+              <h3>Staff Actions</h3>
               <button className="icon-btn" onClick={() => setOpenAction(null)} aria-label="Close">
                 ✕
               </button>
             </div>
-            <p className="order-meta">{actionWaiter.name}</p>
+            <p className="order-meta">
+              {actionWaiter.name} &middot; {ROLE_LABEL[actionWaiter.role]}
+            </p>
             <div className="modal__items">
               <button
                 className="pill-btn"
@@ -1522,6 +2140,7 @@ function App() {
                   setActionType('profile')
                   setActionName(actionWaiter.name)
                   setActionPhone(actionWaiter.phone)
+                  setActionRole(actionWaiter.role)
                   setOpenAction(null)
                 }}
               >
@@ -1630,6 +2249,17 @@ function App() {
                   onChange={(e) => setItemActionPrice(e.target.value)}
                 />
               </label>
+              <label className="field">
+                <span>Stock</span>
+                <input
+                  className="field-input"
+                  placeholder="0"
+                  type="number"
+                  min="0"
+                  value={itemActionStock}
+                  onChange={(e) => setItemActionStock(e.target.value)}
+                />
+              </label>
             </div>
             <div className="confirm-actions">
               <button
@@ -1642,6 +2272,48 @@ function App() {
                 Cancel
               </button>
               <button className="primary" onClick={updateItem}>
+                Save
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {stockModalItem && (
+        <div className="modal" onClick={() => setStockModalItem(null)}>
+          <div className="modal__content" onClick={(e) => e.stopPropagation()}>
+            <div className="modal__head">
+              <h3>Update Stock</h3>
+              <button className="icon-btn" onClick={() => setStockModalItem(null)} aria-label="Close">
+                ✕
+              </button>
+            </div>
+            <p className="order-meta">
+              {stockModalItem.name} &middot; {formatPrice(stockModalItem.price)}
+            </p>
+            <div className="modal__items">
+              <label className="field">
+                <span>Stock</span>
+                <input
+                  className="field-input"
+                  type="number"
+                  min="0"
+                  value={stockModalValue}
+                  onChange={(e) => setStockModalValue(e.target.value)}
+                />
+              </label>
+            </div>
+            <div className="confirm-actions">
+              <button className="pill-btn" onClick={() => setStockModalItem(null)}>
+                Cancel
+              </button>
+              <button
+                className="primary"
+                onClick={() => {
+                  updateItemStock(stockModalItem.id, stockModalValue || '0')
+                  setStockModalItem(null)
+                }}
+              >
                 Save
               </button>
             </div>
@@ -1711,7 +2383,7 @@ function App() {
         <div className="modal">
           <div className="modal__content">
             <div className="modal__head">
-              <h3>Edit Waiter</h3>
+              <h3>Edit Staff</h3>
               <button className="icon-btn" onClick={() => { setActionWaiter(null); setActionType(null) }}>
                 ✕
               </button>
@@ -1729,6 +2401,18 @@ function App() {
                 value={actionPhone}
                 onChange={(e) => setActionPhone(e.target.value)}
               />
+              <label className="field">
+                <span>New PIN (optional)</span>
+                <input
+                  className="field-input"
+                  placeholder="4 digits"
+                  type="password"
+                  inputMode="numeric"
+                  pattern="[0-9]*"
+                  value={actionPin}
+                  onChange={(e) => setActionPin(e.target.value)}
+                />
+              </label>
             </div>
             <div className="confirm-actions">
               <button className="pill-btn" onClick={() => { setActionWaiter(null); setActionType(null) }}>
@@ -1737,12 +2421,189 @@ function App() {
               <button
                 className="primary"
                 onClick={() => {
-                  updateWaiterProfile(actionWaiter.id, actionName, actionPhone)
+                  updateWaiterProfile(actionWaiter.id, actionName, actionPhone, actionRole, actionPin)
                   setActionWaiter(null)
                   setActionType(null)
+                  setActionPin('')
                 }}
               >
                 Save
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {loanCustomerModalOpen && (
+        <div className="modal">
+          <div className="modal__content">
+            <div className="modal__head">
+              <h3>{tr(language, 'addLoanCustomer')}</h3>
+              <button className="icon-btn" onClick={() => setLoanCustomerModalOpen(false)} aria-label="Close">
+                ✕
+              </button>
+            </div>
+            <div className="modal__items">
+              <input
+                className="field-input"
+                placeholder="Customer name"
+                value={newLoanCustomerName}
+                onChange={(e) => setNewLoanCustomerName(e.target.value)}
+              />
+              <input
+                className="field-input"
+                placeholder="Phone"
+                value={newLoanCustomerPhone}
+                onChange={(e) => setNewLoanCustomerPhone(e.target.value)}
+                type="tel"
+              />
+            </div>
+            <button className="primary block" onClick={addLoanCustomer}>
+              {tr(language, 'addLoanCustomer')}
+            </button>
+          </div>
+        </div>
+      )}
+
+      {loanEntryModalOpen && (
+        <div className="modal">
+          <div className="modal__content">
+            <div className="modal__head">
+              <h3>{tr(language, 'addLoanEntry')}</h3>
+              <button className="icon-btn" onClick={() => setLoanEntryModalOpen(false)} aria-label="Close">
+                ✕
+              </button>
+            </div>
+            <div className="modal__items">
+              <label className="field">
+                <span>Customer</span>
+                <select
+                  className="field-input"
+                  value={loanEntryCustomerId}
+                  onChange={(e) => setLoanEntryCustomerId(e.target.value)}
+                >
+                  <option value="">Select customer</option>
+                  {loanCustomers.map((c) => (
+                    <option key={c.id} value={c.id}>
+                      {c.name} ({c.phone})
+                    </option>
+                  ))}
+                </select>
+              </label>
+              <label className="field">
+                <span>Loan order</span>
+                <select
+                  className="field-input"
+                  value={loanEntryOrderId}
+                  onChange={(e) => setLoanEntryOrderId(e.target.value)}
+                >
+                  <option value="">Select order</option>
+                  {loanOrders.map((o) => (
+                    <option key={o.id} value={o.id}>
+                      {o.id} - {orderTitle(o)} ({formatPrice(orderTotal(o))})
+                    </option>
+                  ))}
+                </select>
+              </label>
+            </div>
+            <button className="primary block" onClick={addLoanEntry}>
+              {tr(language, 'addLoanEntry')}
+            </button>
+          </div>
+        </div>
+      )}
+
+      {loanStatusModalOpen && (
+        <div className="modal">
+          <div className="modal__content">
+            <div className="modal__head">
+              <h3>Select loan customer</h3>
+              <button className="icon-btn" onClick={() => setLoanStatusModalOpen(false)} aria-label="Close">
+                ✕
+              </button>
+            </div>
+            <input
+              className="search"
+              placeholder={tr(language, 'searchLoanCustomers')}
+              value={loanStatusSearch}
+              onChange={(e) => setLoanStatusSearch(e.target.value)}
+            />
+            <div className="loan-list" style={{ maxHeight: 280, overflowY: 'auto', marginTop: 10 }}>
+              {loanCustomersModalFiltered.length === 0 && <div className="empty light">No customers found.</div>}
+              {loanCustomersModalFiltered.map((c) => {
+                const total = Object.values(c.loans ?? {}).reduce((s, l) => s + l.amount, 0)
+                return (
+                  <label key={c.id} className="loan-row" style={{ cursor: 'pointer' }}>
+                    <div>
+                      <p className="loan-order" style={{ marginBottom: 2 }}>{c.name}</p>
+                      <p className="order-meta">{c.phone}</p>
+                    </div>
+                    <div style={{ display: 'flex', alignItems: 'center', gap: 10 }}>
+                      <span className="loan-amount">{formatPrice(total)}</span>
+                      <input
+                        type="radio"
+                        name="loan-customer"
+                        checked={loanStatusCustomerId === c.id}
+                        onChange={() => setLoanStatusCustomerId(c.id)}
+                      />
+                    </div>
+                  </label>
+                )
+              })}
+            </div>
+            <div className="confirm-actions">
+              <button className="pill-btn" onClick={() => setLoanStatusModalOpen(false)}>
+                Cancel
+              </button>
+              <button className="primary" onClick={confirmLoanStatus}>
+                Confirm
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {viewLoanCustomer && (
+        <div className="modal" onClick={() => setViewLoanCustomer(null)}>
+          <div className="modal__content" onClick={(e) => e.stopPropagation()}>
+            <div className="modal__head">
+              <h3>Loan details</h3>
+              <button className="icon-btn" onClick={() => setViewLoanCustomer(null)} aria-label="Close">
+                ✕
+              </button>
+            </div>
+            <p className="loan-name" style={{ marginBottom: 4 }}>{viewLoanCustomer.name}</p>
+            <p className="order-meta">{viewLoanCustomer.phone}</p>
+            <div className="loan-totals" style={{ alignItems: 'flex-start', marginTop: 8 }}>
+              <span className="loan-chip">
+                <span className="dot" /> {Object.keys(viewLoanCustomer.loans ?? {}).length} {tr(language, 'loan')}
+                {Object.keys(viewLoanCustomer.loans ?? {}).length === 1 ? '' : 's'}
+              </span>
+              <strong>
+                {formatPrice(
+                  Object.values(viewLoanCustomer.loans ?? {}).reduce((s, l) => s + l.amount, 0)
+                )}
+              </strong>
+            </div>
+            <div className="loan-list" style={{ marginTop: 10 }}>
+              {Object.keys(viewLoanCustomer.loans ?? {}).length === 0 && (
+                <div className="empty light">{tr(language, 'noLoansYet')}</div>
+              )}
+              {Object.values(viewLoanCustomer.loans ?? {}).map((l) => (
+                <div key={l.id} className="loan-row">
+                  <div>
+                    <p className="loan-order">Order {l.orderId}</p>
+                    <p className="order-meta">
+                      {tr(language, 'servedBy')} {l.servedBy} &middot; {formatDateTime(l.date)}
+                    </p>
+                  </div>
+                  <span className="loan-amount">{formatPrice(l.amount)}</span>
+                </div>
+              ))}
+            </div>
+            <div className="confirm-actions">
+              <button className="pill-btn" onClick={() => setViewLoanCustomer(null)}>
+                Close
               </button>
             </div>
           </div>
