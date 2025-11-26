@@ -1,0 +1,84 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <title>Puntros Data Deletion Request</title>
+  <style>
+    :root {
+      color-scheme: light;
+      --bg: #f6f7fb;
+      --card: #ffffff;
+      --text: #0f172a;
+      --muted: #6b7280;
+      --accent: #0ea44d;
+    }
+    * { box-sizing: border-box; }
+    body {
+      margin: 0;
+      font-family: "Segoe UI", Arial, sans-serif;
+      background: var(--bg);
+      color: var(--text);
+      line-height: 1.6;
+      padding: 24px;
+    }
+    .shell {
+      max-width: 800px;
+      margin: 0 auto;
+      background: var(--card);
+      border-radius: 16px;
+      box-shadow: 0 10px 30px rgba(15, 23, 42, 0.08);
+      padding: 24px;
+    }
+    h1 { margin-top: 0; color: var(--text); }
+    p { margin: 0 0 12px; color: var(--muted); }
+    form { display: grid; gap: 12px; }
+    label { font-weight: 600; color: var(--text); }
+    input, textarea {
+      width: 100%;
+      padding: 10px 12px;
+      border-radius: 10px;
+      border: 1px solid #e5e7eb;
+      font: inherit;
+    }
+    textarea { resize: vertical; min-height: 120px; }
+    button {
+      background: var(--accent);
+      color: #fff;
+      border: none;
+      border-radius: 10px;
+      padding: 12px 14px;
+      font-weight: 700;
+      cursor: pointer;
+    }
+    button:hover { background: #0b7a39; }
+  </style>
+</head>
+<body>
+  <div class="shell">
+    <h1>Puntros Data Deletion Request</h1>
+    <p>Use this form to request deletion of your Puntros account data. We’ll verify the details and process the request.</p>
+    <form action="https://formspree.io/f/mzzbpndy" method="POST">
+      <div>
+        <label for="name">Name</label>
+        <input id="name" name="name" type="text" required />
+      </div>
+      <div>
+        <label for="email">Email</label>
+        <input id="email" name="_replyto" type="email" required />
+      </div>
+      <div>
+        <label for="phone">Phone (used in app)</label>
+        <input id="phone" name="phone" type="tel" required />
+      </div>
+      <div>
+        <label for="details">Tell us what to delete</label>
+        <textarea id="details" name="details" placeholder="Account ID, phone, or any other identifiers" required></textarea>
+      </div>
+      <input type="hidden" name="request_type" value="deletion" />
+      <button type="submit">Submit deletion request</button>
+    </form>
+    <p style="margin-top:12px;">If the form doesn’t work, email us at <strong>privacy@puntros.app</strong> with your account details.</p>
+  </div>
+</body>
+</html>
