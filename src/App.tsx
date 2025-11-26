@@ -52,6 +52,7 @@ type OrderItem = {
 
 type Order = {
   id: string
+  dbId?: string
   waiterId: string
   time: string
   items: OrderItem[]
@@ -657,8 +658,9 @@ const [loanStatusSearch, setLoanStatusSearch] = useState('')
       const list: Order[] = val
         ? Object.entries(val).map(([id, order]) => ({
             id: order.id ?? id,
+            dbId: id,
             waiterId: order.waiterId ?? order.waiter_id,
-            time: order.time,
+            time: order.time ?? order.createdAt ?? new Date().toISOString(),
             status: order.status ?? 'pending',
             collector: order.collector ?? '',
             items: Array.isArray(order.items)
@@ -783,6 +785,15 @@ const [loanStatusSearch, setLoanStatusSearch] = useState('')
     selected.forEach((s) => {
       itemsMap[s.itemId] = { qty: s.qty }
     })
+    const stockUpdates = selected
+      .map(({ itemId, qty }) => {
+        const currentStock = itemsById[itemId]?.stock
+        if (typeof currentStock !== 'number') return null
+        const next = Math.max(0, currentStock - qty)
+        return { itemId, next }
+      })
+      .filter(Boolean) as { itemId: string; next: number }[]
+
     const payload = {
       id: orderId,
       waiter_id: draftWaiter,
@@ -794,9 +805,12 @@ const [loanStatusSearch, setLoanStatusSearch] = useState('')
 
     set(orderRef, payload)
       .then(() => {
-        setDraftQty({})
-        setShowOrderModal(false)
-        setBanner({ type: 'success', message: 'Order captured and stock updated.' })
+        const updates = stockUpdates.map(({ itemId, next }) => update(dbPath(`items/${itemId}`), { stock: next }))
+        return Promise.all(updates).then(() => {
+          setDraftQty({})
+          setShowOrderModal(false)
+          setBanner({ type: 'success', message: 'Order captured and stock updated.' })
+        })
       })
       .catch((err) => setBanner({ type: 'error', message: err.message }))
   }
@@ -943,7 +957,7 @@ const [loanStatusSearch, setLoanStatusSearch] = useState('')
       return
     }
     const customer = loanCustomers.find((c) => c.id === loanEntryCustomerId)
-    const order = orders.find((o) => o.id === loanEntryOrderId)
+    const order = orders.find((o) => o.dbId === loanEntryOrderId || o.id === loanEntryOrderId)
     if (!customer || !order) {
       setBanner({ type: 'error', message: 'Invalid selection.' })
       return
@@ -1048,9 +1062,10 @@ const [loanStatusSearch, setLoanStatusSearch] = useState('')
       .catch((err) => setBanner({ type: 'error', message: err.message }))
   }
 
-  const updateOrderStatus = (id: string, status: 'paid' | 'loan' | 'pending') => {
+  const updateOrderStatus = (order: Order, status: 'paid' | 'loan' | 'pending') => {
     const collector = status === 'paid' || status === 'loan' ? currentUser?.name ?? 'Unknown' : ''
-    update(dbPath(`orders/${id}`), { status, collector })
+    const pathId = order.dbId ?? order.id
+    update(dbPath(`orders/${pathId}`), { status, collector })
       .then(() => setBanner({ type: 'success', message: 'Order status updated.' }))
       .catch((err) => setBanner({ type: 'error', message: err.message }))
   }
@@ -1062,13 +1077,13 @@ const [loanStatusSearch, setLoanStatusSearch] = useState('')
 
   const handleStatusChange = (order: Order, status: 'paid' | 'loan' | 'pending') => {
     if (status === 'loan') {
-      setLoanStatusOrderId(order.id)
+      setLoanStatusOrderId(order.dbId ?? order.id)
       setLoanStatusModalOpen(true)
       setLoanStatusCustomerId('')
       setLoanStatusSearch('')
       return
     }
-    updateOrderStatus(order.id, status)
+    updateOrderStatus(order, status)
   }
 
   const confirmLoanStatus = () => {
@@ -1076,13 +1091,13 @@ const [loanStatusSearch, setLoanStatusSearch] = useState('')
       setBanner({ type: 'error', message: 'Select a loan customer.' })
       return
     }
-    const order = orders.find((o) => o.id === loanStatusOrderId)
+    const order = orders.find((o) => o.dbId === loanStatusOrderId || o.id === loanStatusOrderId)
     const customer = loanCustomers.find((c) => c.id === loanStatusCustomerId)
     if (!order || !customer) {
       setBanner({ type: 'error', message: 'Invalid selection.' })
       return
     }
-    updateOrderStatus(order.id, 'loan')
+    updateOrderStatus(order, 'loan')
     addLoanEntryForOrder(order, customer).finally(() => {
       setLoanStatusModalOpen(false)
       setLoanStatusOrderId('')
@@ -1463,14 +1478,18 @@ const [loanStatusSearch, setLoanStatusSearch] = useState('')
                 </div>
               <div className="order-list-card">
                 {orderListSorted.length === 0 && <div className="empty light">{tr(language, 'noOrders')}</div>}
-                {orderListSorted.map((order) => (
+                {orderListSorted.map((order, idx) => {
+                  const timeValid = !!order.time && !Number.isNaN(new Date(order.time).getTime())
+                  const timeLabel = timeValid ? formatDateTime(order.time) : ''
+                  const key = `${order.dbId ?? order.id}-${idx}`
+                  return (
                   <div
-                    key={order.id}
+                    key={key}
                     className="order-card light"
                     onClick={() => setViewOrder(order)}
                     role="button"
                   >
-                          <div className="order-card__row">
+                    <div className="order-card__row">
                             <div>
                               <p className="order-id">{orderTitle(order)}</p>
                               <p className="order-meta">
@@ -1481,28 +1500,31 @@ const [loanStatusSearch, setLoanStatusSearch] = useState('')
                             <div className="order-amount">
                               <div className="order-amount__top">
                             <span className="order-price">{formatPrice(orderTotal(order))}</span>
-                            <select
-                              className="status-select"
-                              value={order.status ?? 'pending'}
-                              onChange={(e) => handleStatusChange(order, e.target.value as 'paid' | 'loan' | 'pending')}
-                              onClick={(e) => e.stopPropagation()}
-                            >
-                              <option value="pending">{tr(language, 'statusPending')}</option>
-                              <option value="paid">{tr(language, 'statusPaid')}</option>
-                              <option value="loan">{tr(language, 'statusLoan')}</option>
-                            </select>
-                              </div>
-                              <span className={`status-chip ${statusLabel(order.status).tone}`}>
-                                {statusLabel(order.status).text}
-                              </span>
-                            </div>
+          <select
+            className="status-select"
+            value={order.status ?? 'pending'}
+            onChange={(e) => handleStatusChange(order, e.target.value as 'paid' | 'loan' | 'pending')}
+            onClick={(e) => e.stopPropagation()}
+          >
+            <option value="pending">{tr(language, 'statusPending')}</option>
+            <option value="paid">{tr(language, 'statusPaid')}</option>
+            <option value="loan">{tr(language, 'statusLoan')}</option>
+          </select>
                           </div>
-                          <div className="order-card__meta">
-                        <span className="icon">🧾</span>
-                        <span className="order-time">{formatDateTime(order.time)}</span>
+                          <span className={`status-chip ${statusLabel(order.status).tone}`}>
+                            {statusLabel(order.status).text}
+                          </span>
+                        </div>
                       </div>
+                      {timeValid && (
+                        <div className="order-card__meta">
+                          <span className="icon">🧾</span>
+                          <span className="order-time">{timeLabel}</span>
+                        </div>
+                      )}
                     </div>
-                  ))}
+                  )
+                })}
                 </div>
               </>
             )}
@@ -1761,11 +1783,13 @@ const [loanStatusSearch, setLoanStatusSearch] = useState('')
                     <input
                       type="date"
                       value={reportStart}
+                      placeholder="Start date"
                       onChange={(e) => setReportStart(e.target.value)}
                     />
                     <input
                       type="date"
                       value={reportEnd}
+                      placeholder="End date"
                       onChange={(e) => setReportEnd(e.target.value)}
                     />
                   </div>
@@ -1800,6 +1824,7 @@ const [loanStatusSearch, setLoanStatusSearch] = useState('')
                       <span>Loan</span>
                       <span>Pending</span>
                     </div>
+                    {reportRows.length === 0 && <div className="empty light">{tr(language, 'noOrders')}</div>}
                     {reportRows.map((row) => (
                       <div key={row.label} className="table__row">
                         <span>{row.label}</span>
@@ -2500,8 +2525,8 @@ const [loanStatusSearch, setLoanStatusSearch] = useState('')
                   onChange={(e) => setLoanEntryOrderId(e.target.value)}
                 >
                   <option value="">Select order</option>
-                  {loanOrders.map((o) => (
-                    <option key={o.id} value={o.id}>
+                  {loanOrders.map((o, idx) => (
+                    <option key={o.dbId ?? `${o.id}-${idx}`} value={o.dbId ?? o.id}>
                       {o.id} - {orderTitle(o)} ({formatPrice(orderTotal(o))})
                     </option>
                   ))}
