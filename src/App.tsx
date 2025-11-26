@@ -416,6 +416,7 @@ const [loanStatusSearch, setLoanStatusSearch] = useState('')
 
     const filteredOrders = orders.filter((o) => {
       const t = new Date(o.time).getTime()
+      if (Number.isNaN(t)) return false
       if (start && t < start.getTime()) return false
       if (end && t > end.getTime()) return false
       if (reportStatus === 'paid' && o.status !== 'paid') return false
@@ -426,6 +427,7 @@ const [loanStatusSearch, setLoanStatusSearch] = useState('')
     const buckets = new Map<string, ReportStats>()
     filteredOrders.forEach((order) => {
       const date = new Date(order.time)
+      if (Number.isNaN(date.getTime())) return
       let key = ''
       if (reportTab === 'daily') key = date.toISOString().slice(0, 10)
       if (reportTab === 'weekly') key = getWeekId(date)
